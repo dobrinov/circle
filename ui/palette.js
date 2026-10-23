@@ -82,6 +82,7 @@
       document.documentElement.style.setProperty("--frame", opts.frame);
       document.documentElement.style.setProperty("--panel-top", `${opts.top}px`);
       if (!opts.keep_backdrop) $("backdrop").innerHTML = "";
+      $("backdrop").classList.toggle("splash", !!opts.splash);
     }
     input.placeholder = {
       find: "Find in page",

@@ -41,6 +41,25 @@
       }
       #backdrop img.ready { opacity: 1; }
       #backdrop::after { content: ""; position: absolute; inset: 0; background: var(--scrim); }
+      /* Over the splash (no page open): its colour fields, blurred. */
+      #backdrop.splash {
+        background:
+          radial-gradient(60% 70% at 15% 10%, hsl(var(--hue) 85% 72% / 0.5), transparent 70%),
+          radial-gradient(50% 60% at 90% 35%, hsl(calc(var(--hue) + 70) 90% 70% / 0.4), transparent 70%),
+          radial-gradient(50% 60% at 45% 105%, hsl(calc(var(--hue) - 60) 90% 72% / 0.35), transparent 70%),
+          hsl(var(--hue) 45% 95%);
+        filter: blur(18px);
+        inset: -30px;
+      }
+      @media (prefers-color-scheme: dark) {
+        #backdrop.splash {
+          background:
+            radial-gradient(60% 70% at 15% 10%, hsl(var(--hue) 80% 55% / 0.4), transparent 70%),
+            radial-gradient(50% 60% at 90% 35%, hsl(calc(var(--hue) + 70) 85% 55% / 0.3), transparent 70%),
+            radial-gradient(50% 60% at 45% 105%, hsl(calc(var(--hue) - 60) 85% 55% / 0.28), transparent 70%),
+            hsl(var(--hue) 30% 9%);
+        }
+      }
 
       #panel {
         position: relative;

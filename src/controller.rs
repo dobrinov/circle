@@ -26,6 +26,8 @@ const SIDEBAR_URL: &str = "circle://ui/sidebar.html";
 const PALETTE_URL: &str = "circle://ui/palette.html";
 const PEEK_URL: &str = "circle://ui/sidebar.html?peek";
 const RECORDER_URL: &str = "circle://ui/recorder.html";
+/// The splash shown when the space has no open tab.
+const START_PAGE_URL: &str = "circle://ui/start.html";
 /// How many downloads the sidebar's list keeps.
 const MAX_DOWNLOADS: usize = 50;
 /// Recordings share the downloads list; their ids start here, well above
@@ -627,6 +629,9 @@ pub struct Controller {
     /// The sidebar that slides out over the page while the real one is
     /// collapsed: an 8pt strip along the left edge until hovered.
     peek: BrowserView,
+    /// The splash in the page area while no tab is shown.
+    start: BrowserView,
+    start_ready: bool,
     peek_overlay: Option<OverlayController>,
     peek_open: bool,
     peek_ready: bool,
@@ -769,9 +774,13 @@ impl Controller {
         let sidebar = views::create_browser_view(Role::Sidebar, SIDEBAR_URL, background);
         let palette = views::create_browser_view(Role::Palette, PALETTE_URL, 0xFFFF_FFFF);
         let peek = views::create_browser_view(Role::Peek, PEEK_URL, background);
+        let start = views::create_browser_view(Role::Start, START_PAGE_URL, background);
         let content = panel_create(None).expect("failed to create content panel");
         let pages = panel_create(None).expect("failed to create pages panel");
         pages.set_to_box_layout(Some(&pages_layout(false)));
+        // Hidden views take no room in the pages panel's box layout.
+        start.set_visible(0);
+        pages.add_child_view(Some(&mut View::from(&start)));
         content.add_child_view(Some(&mut View::from(&pages)));
         let session_sidebar_visible = session.sidebar_visible;
         Self {
@@ -796,6 +805,8 @@ impl Controller {
             sidebar_ready: false,
             palette_ready: false,
             peek,
+            start,
+            start_ready: false,
             peek_overlay: None,
             peek_open: false,
             peek_ready: false,
@@ -1061,6 +1072,7 @@ impl Controller {
                 match from.as_str() {
                     "sidebar" => self.sidebar_ready = true,
                     "peek" => self.peek_ready = true,
+                    "start" => self.start_ready = true,
                     "recorder" => {
                         self.recorder_ready = true;
                         if let Some(tab) = self.pending_recording.take() {
@@ -1753,6 +1765,17 @@ impl Controller {
         for (id, live) in &self.live {
             live.view.set_visible(shown.contains(id) as c_int);
         }
+        // No tab to show: the splash, focused so ⌘K works right away.
+        let splash = shown.is_empty();
+        if splash != (self.start.is_visible() != 0) {
+            self.start.set_visible(splash as c_int);
+            if splash {
+                self.ui_dirty = true; // it needs the current space
+            }
+        }
+        if splash && self.palette_mode.is_none() {
+            self.start.request_focus();
+        }
         let active = self.session.active_tab();
         for (tab, view) in &self.docked_devtools {
             view.set_visible((Some(*tab) == active) as c_int);
@@ -1784,6 +1807,12 @@ impl Controller {
                     (rect, is_local_url(&tab.url))
                 })
                 .collect();
+            if self.start.is_visible() != 0 {
+                pages.push((
+                    offset(self.start.bounds(), content.x + area.x, content.y + area.y),
+                    false,
+                ));
+            }
             pages.extend(
                 self.docked_devtools
                     .values()
@@ -2531,6 +2560,7 @@ impl Controller {
         self.content.set_background_color(color);
         self.sidebar.set_background_color(color);
         self.peek.set_background_color(color);
+        self.start.set_background_color(color);
         self.update_page_corners();
         self.ui_dirty = true;
     }
@@ -2603,6 +2633,8 @@ impl Controller {
             "text": text,
             "backdrop": mode != PaletteMode::Find,
             "keep_backdrop": reopen,
+            // No page to blur: the splash shows, so the backdrop imitates it.
+            "splash": self.shown_tabs().is_empty(),
             "frame": format!("#{:06x}", self.background() & 0xFF_FFFF),
             "top": (area.height / 7).max(40),
         });
@@ -2783,6 +2815,9 @@ impl Controller {
         }
         if self.peek_ready {
             run_js(&self.peek, &code);
+        }
+        if self.start_ready && self.start.is_visible() != 0 {
+            run_js(&self.start, &code);
         }
         if self.palette_ready && self.palette_mode.is_some() {
             run_js(&self.palette, &code);

@@ -24,6 +24,8 @@ pub enum Role {
     Peek,
     /// The hidden page that encodes video recordings.
     Recorder,
+    /// The splash shown in the page area when the space has no open tab.
+    Start,
 }
 
 /// Prefix of the console messages the docked DevTools' resize grip sends.
@@ -271,7 +273,10 @@ wrap_life_span_handler! {
             let Some(browser) = browser.cloned() else {
                 return;
             };
-            if matches!(self.role, Role::Sidebar | Role::Palette | Role::Peek | Role::Recorder) {
+            if matches!(
+                self.role,
+                Role::Sidebar | Role::Palette | Role::Peek | Role::Recorder | Role::Start
+            ) {
                 scheme::allow_browser(browser.identifier());
             }
             BROWSERS.with(|b| b.borrow_mut().push(browser.clone()));

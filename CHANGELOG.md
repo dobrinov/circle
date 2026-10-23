@@ -7,6 +7,11 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+### Added
+
+- A splash screen when a space has no open tab: a greeting, a ⌘K hint and
+  generated artwork in the space's colours (private and dark variants).
+
 ## [0.1.0] - 2026-10-23
 
 The first release.

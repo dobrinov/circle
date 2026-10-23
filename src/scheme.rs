@@ -115,6 +115,11 @@ const ASSETS: &[(&str, &str, &[u8])] = &[
         include_bytes!("../ui/bugreport.js"),
     ),
     (
+        "/start.html",
+        "text/html",
+        include_bytes!("../ui/start.html"),
+    ),
+    (
         "/history.html",
         "text/html",
         include_bytes!("../ui/history.html"),
