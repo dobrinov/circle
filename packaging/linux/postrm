@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+  if command -v update-alternatives >/dev/null 2>&1; then
+    update-alternatives --remove x-www-browser /opt/circle/circle || true
+  fi
+fi
+exit 0

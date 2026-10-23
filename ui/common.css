@@ -1,0 +1,98 @@
+:root {
+  --hue: 262;
+  --bg: hsl(var(--hue) 50% 82%);
+  --fg: hsl(var(--hue) 30% 14%);
+  --muted: hsl(var(--hue) 18% 34%);
+  --hover: hsl(0 0% 100% / 0.35);
+  --active: hsl(0 0% 100% / 0.78);
+  --active-fg: hsl(var(--hue) 40% 12%);
+  --line: hsl(var(--hue) 25% 30% / 0.16);
+  --panel: hsl(0 0% 100%);
+  --panel-fg: hsl(230 15% 15%);
+  --panel-muted: hsl(230 8% 46%);
+  --panel-select: hsl(var(--hue) 70% 94%);
+  --accent: hsl(var(--hue) 60% 48%);
+  --shadow: 0 1px 2px hsl(0 0% 0% / 0.06), 0 6px 18px hsl(0 0% 0% / 0.08);
+  --radius: 10px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: hsl(var(--hue) 20% 16%);
+    --fg: hsl(var(--hue) 20% 90%);
+    --muted: hsl(var(--hue) 10% 66%);
+    --hover: hsl(0 0% 100% / 0.07);
+    --active: hsl(0 0% 100% / 0.14);
+    --active-fg: hsl(0 0% 100%);
+    --line: hsl(0 0% 100% / 0.1);
+    --panel: hsl(var(--hue) 12% 13%);
+    --panel-fg: hsl(var(--hue) 15% 92%);
+    --panel-muted: hsl(var(--hue) 8% 62%);
+    --panel-select: hsl(var(--hue) 30% 24%);
+    --accent: hsl(var(--hue) 75% 72%);
+    --shadow: 0 1px 2px hsl(0 0% 0% / 0.3), 0 8px 24px hsl(0 0% 0% / 0.35);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Ubuntu, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+button:focus:not(:focus-visible) { outline: none; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.letter {
+  display: inline-grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  background: hsl(var(--letter-hue, 220) 45% 55%);
+  text-transform: uppercase;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  margin: 1px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0.55;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

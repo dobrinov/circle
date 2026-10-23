@@ -1,0 +1,89 @@
+# Pushing a version tag (made with `cargo xtask release X.Y.Z`) publishes a
+# GitHub Release with installers for every platform, checksums and the
+# matching section of CHANGELOG.md. Tags with a suffix (v0.2.0-beta.1) are
+# published as pre-releases.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  check:
+    name: Check version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches Cargo.toml and CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          if [ "$version" != "$cargo_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match Cargo.toml version $cargo_version"
+            exit 1
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for $version"
+            exit 1
+          fi
+
+  build:
+    needs: check
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      retention-days: 30
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums and release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          (cd artifacts && sha256sum * > SHA256SUMS.txt)
+          # The CHANGELOG section for this version, without its heading.
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "### Downloads"
+            echo
+            echo "| Platform | File |"
+            echo "| --- | --- |"
+            for f in artifacts/*; do
+              name="$(basename "$f")"
+              case "$name" in
+                *macos-aarch64.dmg) p="macOS (Apple Silicon)" ;;
+                *macos-x86_64.dmg) p="macOS (Intel)" ;;
+                *windows-*-setup.exe) p="Windows installer" ;;
+                *windows-*.zip) p="Windows (portable)" ;;
+                *_amd64.deb) p="Debian / Ubuntu (x86_64)" ;;
+                *_arm64.deb) p="Debian / Ubuntu (arm64)" ;;
+                *linux-x86_64.tar.gz) p="Linux (x86_64)" ;;
+                *linux-aarch64.tar.gz) p="Linux (arm64)" ;;
+                *) continue ;;
+              esac
+              echo "| $p | [$name](https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$name) |"
+            done
+            echo
+            echo "Verify downloads with \`SHA256SUMS.txt\`."
+          } >> notes.md
+          cat notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Circle ${{ github.ref_name }}
+          body_path: notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: artifacts/*

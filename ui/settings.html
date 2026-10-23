@@ -1,0 +1,219 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      html, body { background: var(--panel); color: var(--panel-fg); height: auto; min-height: 100%; overflow: auto; }
+
+      main { max-width: 680px; margin: 0 auto; padding: 50px 24px 72px; }
+      h1 { margin: 0 0 26px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+      h2 {
+        margin: 30px 0 8px;
+        padding: 0 4px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--panel-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .card { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        min-height: 56px;
+        padding: 10px 16px;
+      }
+      .row + .row { border-top: 1px solid var(--line); }
+      .row .label { flex: 1; min-width: 0; font-size: 14px; }
+      .row .label small { display: block; margin-top: 2px; color: var(--panel-muted); font-size: 12px; }
+      .row .value { flex: none; display: flex; align-items: center; gap: 8px; }
+
+      .segmented {
+        display: flex;
+        padding: 2px;
+        border-radius: 9px;
+        background: var(--panel-select);
+      }
+      .segmented button {
+        height: 28px;
+        padding: 0 12px;
+        border-radius: 7px;
+        font-weight: 500;
+        color: var(--panel-muted);
+      }
+      .segmented button.on { background: var(--panel); color: var(--panel-fg); box-shadow: var(--shadow); }
+
+      select, input[type="text"] {
+        height: 32px;
+        padding: 0 10px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: inherit;
+        font: inherit;
+      }
+      input[type="text"] { width: 100%; user-select: text; }
+      input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+      #custom-search-row[hidden] { display: none; }
+
+      .switch {
+        position: relative;
+        width: 38px;
+        height: 22px;
+        border-radius: 11px;
+        background: var(--line);
+        transition: background 0.15s;
+      }
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: white;
+        box-shadow: 0 1px 2px hsl(0 0% 0% / 0.3);
+        transition: transform 0.15s;
+      }
+      .switch[aria-checked="true"] { background: var(--accent); }
+      .switch[aria-checked="true"]::after { transform: translateX(16px); }
+
+      .button {
+        height: 32px;
+        padding: 0 14px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        font-weight: 600;
+      }
+      .button:hover { background: var(--panel-select); }
+      .button.danger { color: hsl(0 70% 52%); }
+
+      .grant .label { font-size: 13px; }
+      .empty { padding: 16px; color: var(--panel-muted); }
+
+      kbd {
+        display: inline-block;
+        min-width: 22px;
+        padding: 2px 6px;
+        border-radius: 5px;
+        border: 1px solid var(--line);
+        font-family: inherit;
+        font-size: 12px;
+        line-height: 1.3;
+        text-align: center;
+        color: var(--panel-muted);
+      }
+      .about { margin-top: 30px; padding: 0 4px; color: var(--panel-muted); font-size: 12px; user-select: text; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Settings</h1>
+
+      <h2>Appearance</h2>
+      <div class="card">
+        <div class="row">
+          <div class="label">Theme<small>Applies to Circle and to websites that support dark mode</small></div>
+          <div class="value segmented" id="appearance" role="radiogroup" aria-label="Theme">
+            <button data-value="system" role="radio">System</button>
+            <button data-value="light" role="radio">Light</button>
+            <button data-value="dark" role="radio">Dark</button>
+          </div>
+        </div>
+      </div>
+
+      <h2>Search</h2>
+      <div class="card">
+        <div class="row">
+          <div class="label">Search engine<small>Used for searches from the address bar and Spotlight</small></div>
+          <div class="value">
+            <select id="search">
+              <option value="https://www.google.com/search?q=%s">Google</option>
+              <option value="https://duckduckgo.com/?q=%s">DuckDuckGo</option>
+              <option value="https://www.bing.com/search?q=%s">Bing</option>
+              <option value="https://search.brave.com/search?q=%s">Brave Search</option>
+              <option value="https://kagi.com/search?q=%s">Kagi</option>
+              <option value="https://www.ecosia.org/search?q=%s">Ecosia</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" id="custom-search-row" hidden>
+          <div class="label">
+            <input type="text" id="custom-search" placeholder="https://example.com/search?q=%s" spellcheck="false" />
+            <small>Use %s where the search terms go</small>
+          </div>
+        </div>
+      </div>
+
+      <h2>Tabs</h2>
+      <div class="card">
+        <div class="row">
+          <div class="label">Archive unpinned tabs after<small>Like Arc, idle tabs tidy themselves away. Find them again in Recently Closed.</small></div>
+          <div class="value">
+            <select id="archive">
+              <option value="12">12 hours</option>
+              <option value="24">1 day</option>
+              <option value="168">7 days</option>
+              <option value="720">30 days</option>
+              <option value="0">Never</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <h2>Privacy</h2>
+      <div class="card">
+        <div class="row">
+          <div class="label">Browsing history</div>
+          <div class="value"><button class="button" id="history">Show History</button></div>
+        </div>
+        <div class="row">
+          <div class="label">Clear browsing data<small>History, cookies and cached files</small></div>
+          <div class="value"><button class="button danger" id="clear">Clear…</button></div>
+        </div>
+      </div>
+
+      <h2>Site permissions</h2>
+      <div class="card" id="grants"></div>
+
+      <h2>Developer</h2>
+      <div class="card">
+        <div class="row">
+          <div class="label">Developer tools position</div>
+          <div class="value segmented" id="dock" role="radiogroup" aria-label="Developer tools position">
+            <button data-value="right" role="radio">Right</button>
+            <button data-value="bottom" role="radio">Bottom</button>
+            <button data-value="window" role="radio">Window</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="label">Allow AI agents to control Circle<small>Lets local agents (through circle-mcp) open tabs, read pages and click on your behalf</small></div>
+          <div class="value"><button class="switch" id="agent" role="switch" aria-label="Allow AI agents to control Circle"></button></div>
+        </div>
+      </div>
+
+      <h2>Help</h2>
+      <div class="card">
+        <div class="row">
+          <div class="label">Found a problem?<small>Describe it, show Circle what happens, and get the text of a GitHub issue</small></div>
+          <div class="value"><button class="button" id="report-bug">Report a Bug…</button></div>
+        </div>
+      </div>
+
+      <h2>Keyboard shortcuts</h2>
+      <div class="card" id="shortcuts"></div>
+
+      <p class="about" id="about"></p>
+    </main>
+
+    <script src="common.js"></script>
+    <script src="settings.js"></script>
+  </body>
+</html>

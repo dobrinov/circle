@@ -1,0 +1,49 @@
+# Every push to main and every pull request: lint, then build, test and
+# package on all platforms. Packages are kept for two weeks as artifacts.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    # The website and docs don't change what gets built.
+    paths-ignore: ["docs/**", "**.md"]
+  pull_request:
+    paths-ignore: ["docs/**", "**.md"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Format and Clippy
+    runs-on: macos-latest
+    env:
+      CEF_PATH: ${{ github.workspace }}/../cef
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache CEF binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../cef
+          key: cef-aarch64-apple-darwin-${{ hashFiles('Cargo.lock') }}
+      - run: brew install ninja || true
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Linux and Windows code type-checks here in a minute, without
+      # building Chromium for them (`cef/dox` skips its native build).
+      - name: Clippy for Linux and Windows
+        run: |
+          for target in x86_64-unknown-linux-gnu x86_64-pc-windows-msvc; do
+            CARGO_TARGET_DIR=target/xcheck cargo clippy --lib --tests --target "$target" --features cef/dox -- -D warnings
+          done
+
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit

@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Report a Bug</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      html, body { background: var(--panel); color: var(--panel-fg); height: auto; min-height: 100%; overflow: auto; }
+      body { user-select: text; }
+      main { max-width: 680px; margin: 0 auto; padding: 50px 24px 72px; }
+      h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+      .intro { margin: 0 0 26px; color: var(--panel-muted); font-size: 14px; }
+
+      .steps { display: flex; gap: 8px; margin: 0 0 26px; font-size: 12px; font-weight: 600; color: var(--panel-muted); }
+      .steps span { padding: 4px 10px; border-radius: 999px; background: var(--panel-select); }
+      .steps span.on { background: var(--accent); color: white; }
+
+      .view[hidden] { display: none; }
+      label.field { display: block; margin: 0 0 18px; font-size: 14px; font-weight: 600; }
+      label.field small { display: block; font-weight: 400; color: var(--panel-muted); font-size: 12px; margin-top: 2px; }
+      input[type="text"], textarea, select {
+        display: block;
+        width: 100%;
+        margin-top: 8px;
+        padding: 9px 11px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: inherit;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.45;
+      }
+      textarea { resize: vertical; min-height: 76px; }
+      textarea.report { min-height: 380px; font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+      input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+      .check { display: flex; align-items: center; gap: 9px; margin: 0 0 12px; font-size: 14px; }
+      .check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 24px; }
+      .button { min-height: 36px; padding: 0 16px; border-radius: 9px; border: 1px solid var(--line); font-weight: 600; }
+      .button:hover { background: var(--panel-select); }
+      .button.primary { background: var(--accent); border-color: transparent; color: white; }
+      .button.primary:hover { filter: brightness(1.08); background: var(--accent); }
+      .link { color: var(--accent); font-weight: 600; }
+      .status { font-size: 13px; color: var(--panel-muted); }
+
+      .recording { padding: 26px; border-radius: 14px; border: 1px solid var(--line); text-align: center; }
+      .recording .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: hsl(358 80% 55%); margin-right: 8px; animation: pulse 1.4s ease-in-out infinite; }
+      .recording h2 { margin: 0 0 8px; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+      .recording p { margin: 0 0 18px; color: var(--panel-muted); font-size: 14px; }
+      .recording time { font-variant-numeric: tabular-nums; }
+      @keyframes pulse { 50% { opacity: 0.35; } }
+
+      .note { margin: 14px 0 0; padding: 12px 14px; border-radius: 10px; background: var(--panel-select); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Report a Bug</h1>
+      <p class="intro">Answer a few questions, show Circle the problem, and get the text of a GitHub issue. Nothing leaves your computer until you post it.</p>
+      <div class="steps" aria-hidden="true">
+        <span data-step="interview">1 · Describe</span>
+        <span data-step="recording">2 · Reproduce</span>
+        <span data-step="report">3 · Report</span>
+      </div>
+
+      <section class="view" id="interview">
+        <label class="field">What went wrong?
+          <small>One sentence; it becomes the issue's title.</small>
+          <input type="text" id="title" placeholder="e.g. Videos on YouTube stutter after switching spaces" />
+        </label>
+        <label class="field">What happened?
+          <textarea id="what" placeholder="What you saw, any error messages…"></textarea>
+        </label>
+        <label class="field">What did you expect instead?
+          <textarea id="expected"></textarea>
+        </label>
+        <label class="field">Steps to reproduce
+          <small>If you know them. Otherwise Circle's recording will show what you did.</small>
+          <textarea id="steps" placeholder="1. Open …&#10;2. Click …"></textarea>
+        </label>
+        <label class="field">How often does it happen?
+          <select id="frequency">
+            <option>Every time</option>
+            <option>Sometimes</option>
+            <option>It happened once</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="video" /> Also record a video of the page while I reproduce it</label>
+        <div class="actions">
+          <button class="button primary" id="start">Start recording</button>
+          <button class="button" id="skip">Skip, just write the report</button>
+        </div>
+        <p class="note">While recording, Circle notes the pages you visit, tabs you switch to, commands you use, page errors and warnings, failed loads and crashes. You can review and edit everything before sharing.</p>
+      </section>
+
+      <section class="view" id="recording" hidden>
+        <div class="recording">
+          <h2><span class="dot"></span>Recording · <time id="elapsed">0:00</time></h2>
+          <p>Go to the page and make the problem happen. When you're done, press <b>Done</b> in the sidebar or here.</p>
+          <button class="button primary" id="stop">Done</button>
+        </div>
+      </section>
+
+      <section class="view" id="report" hidden>
+        <label class="field">Title
+          <input type="text" id="report-title" />
+        </label>
+        <label class="check"><input type="checkbox" id="full-urls" /> Include full addresses (otherwise only sites, like github.com)</label>
+        <label class="check"><input type="checkbox" id="console" checked /> Include page errors and warnings</label>
+        <label class="field">Issue text
+          <small>Markdown. Remove anything private before sharing.</small>
+          <textarea class="report" id="body" spellcheck="false"></textarea>
+        </label>
+        <p class="note" id="video-note" hidden></p>
+        <div class="actions">
+          <button class="button primary" id="open-issue">Open GitHub issue</button>
+          <button class="button" id="copy">Copy text</button>
+          <button class="button" id="again">Start over</button>
+          <span class="status" id="status" role="status"></span>
+        </div>
+      </section>
+    </main>
+
+    <script src="common.js"></script>
+    <script src="bugreport.js"></script>
+  </body>
+</html>

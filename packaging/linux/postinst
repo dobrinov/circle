@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+# Chromium's setuid sandbox helper must be owned by root with the setuid bit.
+if [ -f /opt/circle/chrome-sandbox ]; then
+  chown root:root /opt/circle/chrome-sandbox
+  chmod 4755 /opt/circle/chrome-sandbox
+fi
+if command -v update-alternatives >/dev/null 2>&1; then
+  update-alternatives --install /usr/bin/x-www-browser x-www-browser /opt/circle/circle 40 || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+fi
+exit 0

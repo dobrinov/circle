@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Circle Recorder</title>
+    <style>html, body { margin: 0; background: transparent; }</style>
+  </head>
+  <body>
+    <script src="common.js"></script>
+    <script>
+      // Encodes a recording: Circle pushes the tab's screencast frames (JPEG,
+      // base64) with circleRecorder.frame(), they are drawn into a canvas, and
+      // MediaRecorder turns the canvas into a video that is uploaded in chunks.
+      (() => {
+        const TYPES = [
+          ["video/mp4;codecs=av01", "mp4"],
+          ["video/mp4;codecs=vp9", "mp4"],
+          ["video/webm;codecs=vp9", "webm"],
+          ["video/webm", "webm"],
+        ];
+        const upload = (op, body, ext = "") =>
+          fetch(`circle://ui/api/recording?op=${op}&ext=${ext}`, { method: "POST", body }).then((r) => {
+            if (!r.ok) throw new Error(`upload ${op} failed`);
+          });
+
+        let canvas, ctx, recorder, uploads, drawing, latest, ticker;
+        let accepting = false;
+
+        // A page that isn't repainting sends no frames, but the video still
+        // needs them to keep time: redraw the latest one.
+        const paint = () => {
+          if (ctx && latest) ctx.drawImage(latest, 0, 0, canvas.width, canvas.height);
+        };
+
+        function begin(width, height) {
+          canvas = document.createElement("canvas");
+          canvas.width = width - (width % 2);
+          canvas.height = height - (height % 2);
+          ctx = canvas.getContext("2d");
+          const [type, ext] = TYPES.find(([t]) => MediaRecorder.isTypeSupported(t)) || [];
+          if (!type) throw new Error("this browser can't encode video");
+          recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: type, videoBitsPerSecond: 8_000_000 });
+          // Chunks go up in order; each waits for the one before.
+          uploads = upload("begin", "", ext);
+          recorder.ondataavailable = (event) => {
+            if (!event.data.size) return;
+            const data = event.data;
+            uploads = uploads.then(async () => upload("chunk", await data.arrayBuffer()));
+          };
+          recorder.onstop = () => {
+            clearInterval(ticker);
+            latest?.close();
+            latest = null;
+            uploads = uploads.then(() => upload("done", "")).catch((err) => upload("fail", String(err)));
+            canvas = ctx = recorder = null;
+          };
+          recorder.start(1000);
+          ticker = setInterval(paint, 1000 / 30);
+        }
+
+        window.circleRecorder = {
+          start() {
+            accepting = true;
+          },
+          frame(data) {
+            if (!accepting) return;
+            // Frames are drawn in arrival order.
+            drawing = (drawing || Promise.resolve())
+              .then(async () => {
+                const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+                const image = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+                if (!recorder) begin(image.width, image.height);
+                latest?.close();
+                latest = image;
+                paint();
+              })
+              .catch((err) => {
+                recorder = null;
+                upload("fail", String(err));
+              });
+          },
+          stop() {
+            accepting = false;
+            const finish = () => {
+              if (recorder) recorder.stop();
+              else upload("fail", "nothing was recorded");
+            };
+            (drawing || Promise.resolve()).then(finish, finish);
+            drawing = null;
+          },
+        };
+
+        circle.send({ cmd: "ready", from: "recorder" });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,169 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>History</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      html, body { background: var(--panel); color: var(--panel-fg); height: auto; min-height: 100%; overflow: auto; }
+      body { user-select: text; }
+
+      main { max-width: 760px; margin: 0 auto; padding: 36px 24px 64px; }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 0;
+        background: var(--panel);
+      }
+      h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; flex: none; }
+
+      .search {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 12px;
+        border-radius: 9px;
+        background: var(--panel-select);
+      }
+      .search svg { width: 15px; height: 15px; stroke: var(--panel-muted); fill: none; stroke-width: 2; stroke-linecap: round; flex: none; }
+      .search input {
+        flex: 1;
+        min-width: 0;
+        border: 0;
+        outline: none;
+        background: none;
+        color: inherit;
+        font: inherit;
+        font-size: 14px;
+      }
+
+      .button {
+        height: 34px;
+        padding: 0 14px;
+        border-radius: 9px;
+        border: 1px solid var(--line);
+        font-weight: 600;
+        flex: none;
+      }
+      .button:hover { background: var(--panel-select); }
+      .button.primary { background: var(--accent); border-color: transparent; color: white; }
+      .button.primary:hover { filter: brightness(1.08); background: var(--accent); }
+
+      h2 {
+        margin: 26px 0 6px;
+        padding: 0 10px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--panel-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .visit {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 38px;
+        padding: 0 6px 0 10px;
+        border-radius: 8px;
+        color: inherit;
+        text-decoration: none;
+      }
+      .visit:hover { background: var(--panel-select); }
+      .visit time { width: 64px; flex: none; color: var(--panel-muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+      .visit .title { flex: 0 1 auto; font-size: 14px; }
+      .visit .host { flex: 1 1 0; min-width: 40px; color: var(--panel-muted); }
+      .visit .remove {
+        width: 26px;
+        height: 26px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        color: var(--panel-muted);
+        opacity: 0;
+      }
+      .visit:hover .remove, .visit .remove:focus-visible { opacity: 1; }
+      .visit .remove:hover { background: var(--line); color: var(--panel-fg); }
+      .visit .remove svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+
+      .empty { padding: 60px 10px; text-align: center; color: var(--panel-muted); font-size: 14px; }
+      #more { height: 1px; }
+
+      dialog {
+        width: min(420px, calc(100vw - 32px));
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        color: var(--panel-fg);
+        box-shadow: var(--shadow);
+      }
+      dialog::backdrop { background: hsl(0 0% 0% / 0.32); }
+      dialog h3 { margin: 0 0 16px; font-size: 17px; }
+      dialog label { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; }
+      dialog label small { display: block; color: var(--panel-muted); font-size: 12px; }
+      dialog select {
+        margin-left: auto;
+        height: 30px;
+        padding: 0 8px;
+        border-radius: 7px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: inherit;
+        font: inherit;
+      }
+      dialog input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); flex: none; }
+      dialog hr { border: 0; height: 1px; background: var(--line); margin: 10px 0; }
+      dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>History</h1>
+        <label class="search">
+          <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+          <input id="q" type="search" placeholder="Search history" autocomplete="off" spellcheck="false" />
+        </label>
+        <button class="button" id="open-clear">Clear browsing data…</button>
+      </header>
+      <div id="list"></div>
+      <div id="more"></div>
+    </main>
+
+    <dialog id="clear">
+      <form method="dialog">
+        <h3>Clear browsing data</h3>
+        <label>
+          Time range
+          <select id="range">
+            <option value="1">Last hour</option>
+            <option value="24">Last 24 hours</option>
+            <option value="168">Last 7 days</option>
+            <option value="all" selected>All time</option>
+          </select>
+        </label>
+        <hr />
+        <label><input type="checkbox" id="c-history" checked /> <span>Browsing history<small>Visited pages and recently closed tabs</small></span></label>
+        <label><input type="checkbox" id="c-cookies" /> <span>Cookies and site data<small>Signs you out of most sites (all time)</small></span></label>
+        <label><input type="checkbox" id="c-cache" /> <span>Cached images and files<small>Sites may load more slowly next time (all time)</small></span></label>
+        <div class="actions">
+          <button class="button" value="cancel">Cancel</button>
+          <button class="button primary" value="clear" id="confirm-clear">Clear data</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="common.js"></script>
+    <script src="history.js"></script>
+  </body>
+</html>

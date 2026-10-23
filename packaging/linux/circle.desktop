@@ -1,0 +1,18 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Circle
+GenericName=Web Browser
+Comment=A calm, sidebar-first web browser
+Exec=circle %U
+Icon=circle
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+StartupWMClass=circle
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Tab
+Exec=circle about:blank

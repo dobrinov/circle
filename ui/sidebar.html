@@ -1,0 +1,701 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Circle Sidebar</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      html { overflow: hidden; background: var(--bg); }
+      body {
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+        color: var(--fg);
+        padding: 0 8px 8px 8px;
+        /* Fixed width: while the sidebar animates the view clips it instead
+           of reflowing it. Set from the browser's sidebar width. */
+        width: 252px;
+        flex: none;
+        transition: opacity 260ms ease, transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+      }
+      body.collapsed { opacity: 0; transform: translateX(-24px); }
+
+      .drag { -webkit-app-region: drag; }
+      .no-drag, button, .tab, .fav, input { -webkit-app-region: no-drag; }
+
+      #top {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        height: 40px;
+        flex: none;
+      }
+      body.macos #top { padding-left: 72px; }
+
+      /* The peek panel draws its own traffic lights: the real ones belong to
+         the sidebar and stay hidden while it is collapsed. */
+      #lights { display: none; }
+      body.macos.peek #top { padding-left: 0; }
+      body.macos.peek #lights {
+        display: flex;
+        gap: 10px;
+        padding-left: 13px;
+        align-self: stretch;
+        align-items: center;
+      }
+      #lights button {
+        width: 13px;
+        height: 13px;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+        display: grid;
+        place-items: center;
+      }
+      #lights .close { background: #ff5f57; }
+      #lights .minimize { background: #febc2e; }
+      #lights .zoom { background: #28c840; }
+      #lights svg {
+        width: 8px;
+        height: 8px;
+        fill: none;
+        stroke: rgba(0, 0, 0, 0.55);
+        stroke-width: 1.4;
+        stroke-linecap: round;
+        opacity: 0;
+      }
+      #lights:hover svg { opacity: 1; }
+      #top .grow { flex: 1; align-self: stretch; }
+
+      .tool {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        color: var(--muted);
+      }
+      .tool:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+      .tool:disabled { opacity: 0.35; }
+      .tool svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+      #url {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 12px;
+        border-radius: var(--radius);
+        background: var(--hover);
+        color: var(--fg);
+        margin-bottom: 10px;
+        flex: none;
+        overflow: hidden;
+      }
+      #url:hover { background: var(--active); }
+      #url .text { flex: 1; }
+      #url .lock { width: 12px; height: 12px; stroke: var(--muted); fill: none; stroke-width: 2; }
+
+      #scroll {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        margin: 0 -4px;
+        padding: 0 4px;
+        scrollbar-width: none;
+      }
+      #scroll::-webkit-scrollbar { display: none; }
+
+      #favorites {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        margin-bottom: 10px;
+        min-height: 4px;
+      }
+      #favorites.empty { display: block; }
+      .fav {
+        height: 46px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--radius);
+        background: var(--hover);
+        position: relative;
+      }
+      .fav:hover { background: var(--active); }
+      .fav.active { background: var(--active); box-shadow: var(--shadow); }
+      .fav.unloaded .icon { opacity: 0.55; filter: grayscale(0.4); }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 8px;
+        font-weight: 600;
+        color: var(--fg);
+      }
+      .section-title .grow { flex: 1; }
+      .section-title input {
+        font: inherit;
+        font-weight: 600;
+        color: inherit;
+        background: var(--active);
+        border: 0;
+        border-radius: 6px;
+        padding: 2px 6px;
+        width: 100%;
+        outline: 2px solid var(--accent);
+      }
+      .muted-btn {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+      .muted-btn:hover { background: var(--hover); color: var(--fg); }
+
+      .divider {
+        height: 1px;
+        background: var(--line);
+        margin: 6px 8px;
+      }
+
+      .list { display: flex; flex-direction: column; gap: 1px; min-height: 6px; }
+
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 34px;
+        padding: 0 6px 0 10px;
+        border-radius: 9px;
+        color: var(--fg);
+        position: relative;
+      }
+      .tab:hover { background: var(--hover); }
+      .tab.active { background: var(--active); color: var(--active-fg); box-shadow: var(--shadow); }
+      .tab.split::after {
+        content: "";
+        position: absolute;
+        left: 2px;
+        top: 9px;
+        bottom: 9px;
+        width: 3px;
+        border-radius: 2px;
+        background: var(--accent);
+      }
+      .tab.unloaded:not(.active) { color: var(--muted); }
+      .tab .title { flex: 1; }
+      .tab .x {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        display: none;
+        place-items: center;
+        color: var(--muted);
+      }
+      .tab:hover .x { display: grid; }
+
+      /* Pages from a local dev server. */
+      .dev {
+        flex: none;
+        height: 16px;
+        padding: 0 5px;
+        border-radius: 4px;
+        display: grid;
+        place-items: center;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: hsl(45 60% 26%);
+        background: hsl(0 0% 0% / 0.08);
+      }
+      #url .dev { height: 18px; padding: 0 6px; font-size: 10px; }
+      .tab:hover .dev { display: none; }
+      @media (prefers-color-scheme: dark) {
+        .dev { color: hsl(45 85% 70%); background: hsl(0 0% 100% / 0.1); }
+      }
+      /* A tinted fill, so it shows on hovered and active (white) tabs alike. */
+      .tab .x { transition: background-color 0.12s, color 0.12s, transform 0.08s; }
+      .tab .x:hover { background: hsl(var(--hue) 30% 20% / 0.12); color: var(--active-fg); }
+      .tab .x:active { background: hsl(var(--hue) 30% 20% / 0.2); transform: scale(0.92); }
+      @media (prefers-color-scheme: dark) {
+        .tab .x:hover { background: hsl(0 0% 100% / 0.14); }
+        .tab .x:active { background: hsl(0 0% 100% / 0.22); }
+      }
+      .tab .x svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; }
+      .tab.moved .reset { display: grid; }
+      .tab:not(.moved) .reset { display: none; }
+
+      .folder-head { font-weight: 500; }
+      .folder-head .chev {
+        width: 12px;
+        height: 12px;
+        flex: none;
+        color: var(--muted);
+        transition: transform 0.15s ease;
+      }
+      .folder.collapsed .folder-head .chev { transform: rotate(-90deg); }
+      .folder-head .folder-icon { width: 16px; height: 16px; flex: none; color: var(--muted); }
+      .folder-head .count { font-size: 11px; color: var(--muted); padding: 0 6px; }
+      .folder-body { display: flex; flex-direction: column; gap: 1px; padding-left: 14px; min-height: 4px; }
+      .folder.collapsed .folder-body { display: none; }
+      .tab input.rename {
+        flex: 1;
+        min-width: 0;
+        font: inherit;
+        color: var(--panel-fg);
+        background: var(--panel);
+        border: 0;
+        border-radius: 5px;
+        padding: 2px 5px;
+        outline: 2px solid var(--accent);
+      }
+
+      .new-tab { color: var(--muted); }
+      .new-tab .plus { width: 16px; text-align: center; font-size: 17px; line-height: 1; }
+
+      .drop-line {
+        height: 2px;
+        margin: -1px 8px;
+        border-radius: 1px;
+        background: var(--accent);
+      }
+      .dragging { opacity: 0.4; }
+      .drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+
+      #agent:not(:empty) {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: -2px 0 10px;
+        padding: 6px 6px 6px 12px;
+        border-radius: var(--radius);
+        background: var(--active);
+        color: var(--active-fg);
+        font-weight: 600;
+        box-shadow: var(--shadow);
+      }
+      #agent .pulse {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      #agent .grow { flex: 1; }
+      #agent button { padding: 3px 8px; border-radius: 6px; background: var(--hover); font-weight: 600; }
+      @keyframes pulse { 50% { opacity: 0.35; } }
+
+      /* Behind Spotlight and the command bar, like the page. */
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        pointer-events: none;
+        opacity: 0;
+        backdrop-filter: blur(14px);
+        background: hsl(var(--hue) 30% 12% / 0.22);
+        transition: opacity 0.12s;
+      }
+      body.dimmed::after { opacity: 1; pointer-events: auto; }
+      @media (prefers-color-scheme: dark) {
+        body::after { background: hsl(0 0% 0% / 0.35); }
+      }
+
+      #recording:not(:empty),
+      #bugrec:not(:empty) {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: -2px 0 10px;
+        padding: 6px 6px 6px 12px;
+        border-radius: var(--radius);
+        background: var(--active);
+        color: var(--active-fg);
+        font-weight: 600;
+        box-shadow: var(--shadow);
+      }
+      #recording .dot, #bugrec .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: hsl(358 80% 55%);
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      #recording .grow, #bugrec .grow { flex: 1; }
+
+      /* The recording controls, before Start. */
+      #recording.prompt { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+      #recording.prompt .rec-head { display: flex; align-items: center; gap: 8px; }
+      #recording.prompt .rec-cancel { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; background: none; color: var(--muted); }
+      #recording.prompt .rec-cancel:hover { background: var(--hover); color: var(--active-fg); }
+      #recording.prompt .rec-cancel svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+      #recording.prompt .rec-tab { margin-top: -6px; font-size: 12px; font-weight: 500; color: var(--muted); }
+      #recording.prompt .seg button { padding: 0; }
+      #recording.prompt .seg button.on { background: var(--bg); color: var(--fg); }
+      #recording.prompt .rec-start {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 32px;
+        border-radius: 8px;
+        background: hsl(358 75% 52%);
+        color: white;
+      }
+      #recording.prompt .rec-start:hover { background: hsl(358 75% 47%); }
+      #recording.prompt .rec-start .dot { background: white; animation: none; width: 8px; height: 8px; }
+      #recording time, #bugrec time { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 500; }
+      #recording button, #bugrec button { padding: 3px 8px; border-radius: 6px; background: var(--hover); font-weight: 600; }
+      #recording button:hover, #bugrec button:hover { background: hsl(358 80% 55%); color: white; }
+
+      #prompts { display: flex; flex-direction: column; gap: 6px; }
+      #prompts:not(:empty) { margin-bottom: 10px; }
+      .card {
+        background: var(--active);
+        border-radius: var(--radius);
+        padding: 10px 12px;
+        box-shadow: var(--shadow);
+        color: var(--active-fg);
+      }
+      .card .row { display: flex; gap: 6px; margin-top: 8px; }
+      .card .row button {
+        flex: 1;
+        height: 26px;
+        border-radius: 7px;
+        background: var(--hover);
+        font-weight: 600;
+      }
+      .card .row button.primary { background: var(--accent); color: white; }
+      .card b { font-weight: 600; }
+
+      /* ----- the library: downloads and recently closed ----- */
+      #library {
+        position: fixed;
+        z-index: 5;
+        top: 40px;
+        bottom: 50px;
+        left: 0;
+        right: 0;
+        margin: 0 8px;
+        display: flex;
+        flex-direction: column;
+        border-radius: var(--radius);
+        /* --active is translucent: lay it over the solid sidebar colour. */
+        background: linear-gradient(var(--active), var(--active)), var(--bg);
+        color: var(--active-fg);
+        box-shadow: var(--shadow);
+        transform: translateX(calc(-100% - 16px));
+        visibility: hidden;
+        transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1), visibility 0s 220ms;
+      }
+      body.library #library { transform: none; visibility: visible; transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1); }
+      .lib-head { display: flex; align-items: center; gap: 4px; padding: 8px 6px 6px 8px; flex: none; }
+      .seg { flex: 1; display: flex; padding: 2px; border-radius: 8px; background: var(--hover); }
+      .seg button { flex: 1; height: 24px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      .seg button.on { background: var(--active); color: var(--active-fg); box-shadow: var(--shadow); }
+      .lib-body { flex: 1; overflow-y: auto; padding: 2px 6px 6px; display: flex; flex-direction: column; gap: 1px; }
+      .lib-foot { flex: none; padding: 6px 8px 8px; display: flex; justify-content: center; }
+      .lib-foot:empty { display: none; }
+      .lib-foot button { height: 26px; padding: 0 12px; border-radius: 7px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      .lib-foot button:hover { background: var(--hover); color: var(--active-fg); }
+      .lib-empty { margin: auto; padding: 24px 12px; text-align: center; color: var(--muted); font-size: 12px; }
+      .lib-item { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 6px 6px 6px 8px; border-radius: 9px; }
+      .lib-item:hover { background: var(--hover); }
+      .lib-item .info { flex: 1; min-width: 0; }
+      .lib-item .name { font-weight: 500; }
+      .lib-item small { display: block; color: var(--muted); font-size: 11px; }
+      .lib-item .bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 4px; overflow: hidden; }
+      .lib-item .bar i { display: block; height: 100%; background: var(--accent); }
+      .lib-item.failed small { color: hsl(358 65% 50%); }
+      .ext {
+        width: 30px;
+        height: 34px;
+        flex: none;
+        border-radius: 6px;
+        display: grid;
+        place-items: end center;
+        padding-bottom: 5px;
+        font-size: 8.5px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        color: var(--active-fg);
+        background: linear-gradient(to bottom, var(--hover), var(--line));
+        text-transform: uppercase;
+      }
+      .lib-item .reveal { width: 26px; height: 26px; border-radius: 6px; display: none; place-items: center; color: var(--muted); flex: none; }
+      .lib-item:hover .reveal { display: grid; }
+      .lib-item .reveal:hover { background: var(--line); color: var(--active-fg); }
+      .lib-item .reveal svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+      #library-btn { position: relative; }
+      #library-btn .badge {
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        min-width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--accent);
+        display: none;
+      }
+      #library-btn .badge.on { display: block; }
+      body.library #library-btn { background: var(--active); }
+
+      #bottom {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 36px;
+        flex: none;
+        margin-top: 6px;
+      }
+      #spaces { display: flex; align-items: center; justify-content: center; gap: 2px; flex: 1; }
+      .space-dot {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .space-dot:hover { background: var(--hover); }
+      .space-dot i {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.55;
+      }
+      .space-dot.active { color: var(--fg); }
+      .space-dot.active i { opacity: 1; width: 9px; height: 9px; }
+
+      #toast {
+        position: fixed;
+        left: 50%;
+        bottom: 52px;
+        transform: translate(-50%, 8px);
+        background: var(--fg);
+        color: var(--bg);
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        opacity: 0;
+        transition: opacity 0.15s, transform 0.15s;
+        pointer-events: none;
+        /* Long file names wrap inside the sidebar. */
+        width: max-content;
+        max-width: calc(100% - 24px);
+        text-align: center;
+        overflow-wrap: anywhere;
+        z-index: 6;
+      }
+      #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+      /* The private space: always dark, clearly labelled. */
+      body.private {
+        --bg: hsl(268 28% 11%);
+        --fg: hsl(268 20% 90%);
+        --muted: hsl(268 10% 66%);
+        --hover: hsl(0 0% 100% / 0.07);
+        --active: hsl(0 0% 100% / 0.13);
+        --active-fg: hsl(0 0% 100%);
+        --line: hsl(0 0% 100% / 0.1);
+        --accent: hsl(268 75% 74%);
+        color-scheme: dark;
+      }
+      body.private .dev { color: hsl(45 85% 70%); background: hsl(0 0% 100% / 0.1); }
+      .private-icon { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+      .space-dot .private-icon { width: 14px; height: 14px; }
+      .end-private { padding: 3px 10px; border-radius: 6px; background: var(--hover); font-weight: 600; font-size: 12px; }
+      .end-private:hover { background: hsl(358 70% 50%); color: white; }
+      #private-note {
+        margin: -2px 0 10px;
+        padding: 8px 10px;
+        border-radius: var(--radius);
+        background: var(--hover);
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.4;
+      }
+      #private-note[hidden] { display: none; }
+
+      /* The copy of the sidebar that peeks out over the page. */
+      body.peek { box-shadow: inset -1px 0 0 var(--line); }
+
+      /* Folded to the hover strip along the left edge, it covers the frame
+         there, so for a dev server page it draws the frame's stripes too
+         (matching stripe_color and the stripes in mac.rs: 6px bands at 45°,
+         85% opaque). */
+      :root { --stripe: hsl(var(--hue) 47% 66% / 0.85); }
+      @media (prefers-color-scheme: dark) {
+        :root { --stripe: hsl(var(--hue) 24% 30% / 0.85); }
+      }
+      @media (max-width: 24px) {
+        body.peek { box-shadow: none; }
+        body.peek > * { visibility: hidden; }
+        body.peek.local-frame {
+          background:
+            repeating-linear-gradient(135deg, var(--stripe) 0 4.243px, transparent 4.243px 8.485px),
+            var(--bg);
+          background-position: var(--stripe-shift, 0) 0, 0 0;
+        }
+      }
+
+      #picker {
+        position: fixed;
+        z-index: 11;
+        width: 220px;
+        padding: 12px;
+        border-radius: 12px;
+        background: var(--panel);
+        color: var(--panel-fg);
+        box-shadow: 0 0 0 1px hsl(0 0% 0% / 0.08), 0 10px 30px hsl(0 0% 0% / 0.22);
+        display: none;
+        flex-direction: column;
+        gap: 12px;
+      }
+      #picker.open { display: flex; }
+      #picker .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; justify-items: center; }
+      #picker .swatch {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: hsl(var(--h) 62% 62%);
+        box-shadow: inset 0 0 0 1px hsl(0 0% 0% / 0.1);
+      }
+      #picker .swatch.selected { outline: 2px solid var(--panel-fg); outline-offset: 2px; }
+      #picker .hue {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 12px;
+        margin: 0;
+        border-radius: 6px;
+        background: linear-gradient(to right, hsl(0 62% 62%), hsl(60 62% 62%), hsl(120 62% 62%), hsl(180 62% 62%), hsl(240 62% 62%), hsl(300 62% 62%), hsl(360 62% 62%));
+      }
+      #picker .hue::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: white;
+        box-shadow: 0 0 0 1px hsl(0 0% 0% / 0.2), 0 2px 6px hsl(0 0% 0% / 0.25);
+      }
+      #picker .random {
+        height: 30px;
+        border-radius: 8px;
+        background: var(--panel-select);
+        font-weight: 600;
+      }
+
+      #menu {
+        position: fixed;
+        z-index: 10;
+        min-width: 190px;
+        padding: 5px;
+        border-radius: 9px;
+        background: var(--panel);
+        color: var(--panel-fg);
+        box-shadow: 0 0 0 1px hsl(0 0% 0% / 0.08), 0 10px 30px hsl(0 0% 0% / 0.22);
+        display: none;
+      }
+      #menu.open { display: block; }
+      #menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 5px 10px;
+        border-radius: 5px;
+      }
+      #menu button:hover { background: var(--accent); color: white; }
+      #menu hr { border: 0; height: 1px; background: var(--line); margin: 4px 6px; }
+      #menu .label { padding: 4px 10px 2px; font-size: 11px; color: var(--panel-muted); }
+
+      .empty-hint { color: var(--muted); padding: 6px 10px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="top" class="drag">
+      <div id="lights">
+        <button class="close" data-op="close" aria-label="Close window">
+          <svg viewBox="0 0 8 8"><path d="m2 2 4 4M6 2 2 6" /></svg>
+        </button>
+        <button class="minimize" data-op="minimize" aria-label="Minimize window">
+          <svg viewBox="0 0 8 8"><path d="M1.5 4h5" /></svg>
+        </button>
+        <button class="zoom" data-op="zoom" aria-label="Zoom window">
+          <svg viewBox="0 0 8 8"><path d="M2 2h3L2 5zM6 6H3l3-3z" fill="rgba(0,0,0,0.55)" stroke="none" /></svg>
+        </button>
+      </div>
+      <button class="tool" id="toggle" title="Hide sidebar (⌘S)">
+        <svg viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2.5" /><path d="M6 2.5v11" /></svg>
+      </button>
+      <div class="grow"></div>
+      <button class="tool" id="back" title="Back">
+        <svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5" /></svg>
+      </button>
+      <button class="tool" id="forward" title="Forward">
+        <svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" /></svg>
+      </button>
+      <button class="tool" id="reload" title="Reload">
+        <svg viewBox="0 0 16 16"><path d="M13.5 8A5.5 5.5 0 1 1 11.8 4" /><path d="M13 1.8v3.4H9.6" /></svg>
+      </button>
+    </div>
+
+    <div id="url" class="no-drag" title="Edit address (⌘L)"></div>
+    <div id="bugrec" class="no-drag"></div>
+    <div id="private-note" class="no-drag" hidden>Nothing here is saved: no history, cookies or cache. End the session to close it all.</div>
+    <div id="recording" class="no-drag"></div>
+    <div id="agent" class="no-drag"></div>
+    <div id="prompts"></div>
+
+    <div id="scroll">
+      <div id="favorites" data-section="favorites"></div>
+      <div class="section-title" id="space-title"></div>
+      <div id="pinned" class="list" data-section="pinned"></div>
+      <div class="divider"></div>
+      <div class="tab new-tab" id="new-tab"><span class="plus">+</span><span class="title">New Tab</span></div>
+      <div id="today" class="list" data-section="today"></div>
+      <div class="drag" style="min-height: 40px"></div>
+    </div>
+
+    <!-- Downloads and recently closed tabs, sliding over the sidebar. -->
+    <section id="library" aria-label="Downloads and closed tabs" aria-hidden="true">
+      <div class="lib-head">
+        <div class="seg" role="tablist">
+          <button role="tab" data-lib-view="downloads">Downloads</button>
+          <button role="tab" data-lib-view="closed">Closed tabs</button>
+        </div>
+        <button class="tool" id="lib-close" title="Close" aria-label="Close">
+          <svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+        </button>
+      </div>
+      <div class="lib-body" id="lib-body"></div>
+      <div class="lib-foot" id="lib-foot"></div>
+    </section>
+
+    <div id="bottom">
+      <button class="tool" id="library-btn" title="Downloads and closed tabs" aria-label="Downloads and closed tabs" aria-expanded="false">
+        <svg viewBox="0 0 16 16"><path d="M8 2.5v7m0 0L5 6.5m3 3 3-3" /><path d="M2.5 10v1.5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V10" /></svg>
+        <span class="badge" id="library-badge"></span>
+      </button>
+      <div id="spaces"></div>
+      <button class="tool" id="add-space" title="New space">
+        <svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></svg>
+      </button>
+    </div>
+
+    <div id="toast"></div>
+    <div id="menu"></div>
+    <div id="picker" role="dialog" aria-label="Space color"></div>
+
+    <script src="common.js"></script>
+    <script src="sidebar.js"></script>
+  </body>
+</html>

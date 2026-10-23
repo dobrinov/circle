@@ -1,0 +1,65 @@
+# A rolling "Nightly" pre-release built from main each day there are new
+# commits (or on demand). It never becomes the "latest" release, so the
+# website keeps offering the last stable version.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Anything new?
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        run: |
+          last="$(git rev-parse -q --verify refs/tags/nightly || true)"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$last" != "$GITHUB_SHA" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No commits since the last nightly."
+          fi
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      retention-days: 7
+
+  publish:
+    name: Publish nightly
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Replace the nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd artifacts && sha256sum * > SHA256SUMS.txt)
+          git tag -f nightly "$GITHUB_SHA"
+          git push -f origin refs/tags/nightly
+          gh release delete nightly --yes || true
+          gh release create nightly artifacts/* \
+            --prerelease \
+            --title "Nightly ($(date -u +%Y-%m-%d), ${GITHUB_SHA::7})" \
+            --notes "Built from main at $GITHUB_SHA. Nightly builds are untested and may be unstable; for everyday use, take the latest release."
