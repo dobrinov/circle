@@ -13,6 +13,7 @@ pub mod remote;
 pub mod scheme;
 pub mod updater;
 pub mod views;
+pub mod whatsnew;
 
 #[cfg(target_os = "macos")]
 pub mod mac;

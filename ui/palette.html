@@ -107,6 +107,50 @@
       @keyframes settle { from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)) scale(0.985); } }
       #settings iframe { display: block; width: 100%; height: 100%; border: 0; }
 
+      /* ----- what's new, once after an update ----- */
+      #whatsnew { display: none; }
+      body.whatsnew #panel { display: none; }
+      body.whatsnew #whatsnew {
+        display: flex;
+        flex-direction: column;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: min(560px, calc(100% - 48px));
+        max-height: min(640px, calc(100% - 48px));
+        transform: translate(-50%, -50%);
+        border-radius: 18px;
+        overflow: hidden;
+        background: var(--panel);
+        box-shadow: 0 0 0 1px var(--hairline), 0 30px 80px hsl(var(--hue) 40% 10% / 0.28), 0 8px 24px hsl(var(--hue) 40% 10% / 0.12);
+        animation: settle 0.14s ease-out;
+      }
+      #whatsnew header { display: flex; align-items: center; gap: 14px; padding: 24px 28px 16px; }
+      #whatsnew .ring {
+        width: 40px;
+        height: 40px;
+        flex: none;
+        border-radius: 50%;
+        background: conic-gradient(from 140deg, #2F6BFF, #7B3BFF 22%, #FF3D8B 48%, #FFB23F 66%, #FF3D8B 82%, #7B3BFF 92%, #2F6BFF);
+        -webkit-mask: radial-gradient(farthest-side, transparent 58%, #000 60%);
+        mask: radial-gradient(farthest-side, transparent 58%, #000 60%);
+      }
+      #whatsnew h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+      #whatsnew header p { margin: 2px 0 0; font-size: 13px; color: var(--panel-muted); }
+      #notes { flex: 1; min-height: 0; overflow: auto; padding: 0 28px 8px; font-size: 13px; line-height: 1.5; user-select: text; }
+      #notes h2 { margin: 18px 0 2px; font-size: 15px; font-weight: 600; }
+      #notes h2:first-child { margin-top: 0; }
+      #notes h3 { margin: 14px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--panel-muted); }
+      #notes ul { margin: 0; padding-left: 18px; }
+      #notes li { margin: 4px 0; }
+      #notes li::marker { color: var(--accent); }
+      #notes code { padding: 1px 5px; border-radius: 6px; background: var(--key); font-size: 12px; }
+      #notes p { margin: 6px 0; }
+      #whatsnew footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px 16px 28px; border-top: 1px solid var(--hairline); }
+      #whatsnew footer a { color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: none; cursor: pointer; }
+      #whatsnew footer a:hover { text-decoration: underline; }
+      #got-it { height: 30px; padding: 0 16px; border-radius: 6px; background: var(--accent); color: white; font-size: 13px; font-weight: 600; }
+
       #bar { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 10px 0 12px; flex: none; }
       body.backdrop #bar { height: 68px; gap: 14px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--hairline); }
       #bar > svg { width: 18px; height: 18px; stroke: var(--panel-muted); fill: none; stroke-width: 2; stroke-linecap: round; flex: none; }
@@ -183,6 +227,17 @@
   <body>
     <div id="backdrop"></div>
     <div id="settings"></div>
+    <div id="whatsnew" role="dialog" aria-labelledby="whatsnew-title">
+      <header>
+        <div class="ring" aria-hidden="true"></div>
+        <div><h1 id="whatsnew-title">What's new</h1><p id="whatsnew-version"></p></div>
+      </header>
+      <div id="notes"></div>
+      <footer>
+        <a id="release-notes">All release notes</a>
+        <button id="got-it">Got it</button>
+      </footer>
+    </div>
     <div id="panel" role="dialog" aria-label="Command bar">
       <div id="bar">
         <svg id="glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>

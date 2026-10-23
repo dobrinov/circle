@@ -135,6 +135,10 @@ pub struct Session {
     /// Download updates in the background and install them on quit.
     #[serde(default = "yes")]
     pub auto_update: bool,
+    /// The Circle version that last ran with this profile, so the next
+    /// version knows to show what's new.
+    #[serde(default)]
+    pub seen_version: Option<String>,
     /// Blur the page behind Spotlight (otherwise it is only dimmed).
     #[serde(default = "yes")]
     pub spotlight_blur: bool,
@@ -212,6 +216,7 @@ impl Default for Session {
             agent_access: false,
             auto_update: true,
             spotlight_blur: true,
+            seen_version: None,
             devtools_dock: DevToolsDock::default(),
             devtools_width: default_devtools_width(),
             devtools_height: default_devtools_height(),

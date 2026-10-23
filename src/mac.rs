@@ -753,6 +753,11 @@ define_class!(
             menu_action(Action::Record(Format::Gif));
         }
 
+        #[unsafe(method(circleShowWhatsNew:))]
+        fn show_whats_new(&self, _sender: Option<&AnyObject>) {
+            menu_action(Action::ShowWhatsNew);
+        }
+
         #[unsafe(method(circleReportBug:))]
         fn report_bug(&self, _sender: Option<&AnyObject>) {
             menu_action(Action::ReportBug);
@@ -1077,13 +1082,16 @@ fn install_menu(mtm: MainThreadMarker, app: &NSApplication) {
     let help_menu = submenu(
         mtm,
         "Help",
-        vec![item(
-            mtm,
-            "Report a Bug…",
-            Some(sel!(circleReportBug:)),
-            "",
-            none,
-        )],
+        vec![
+            item(
+                mtm,
+                "What's New in Circle",
+                Some(sel!(circleShowWhatsNew:)),
+                "",
+                none,
+            ),
+            item(mtm, "Report a Bug…", Some(sel!(circleReportBug:)), "", none),
+        ],
     );
     let window_menu = submenu(
         mtm,

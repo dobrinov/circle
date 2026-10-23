@@ -51,6 +51,7 @@
     [() => (state?.spaces?.some((s) => s.private) ? "Go to Fap Mode" : "Fap Mode (private browsing)"), () => circle.action("private_space")],
     [() => (state?.spaces?.some((s) => s.private) ? "End Fap Mode" : ""), () => circle.action("end_private")],
     ["Settings", () => circle.action("show_settings")],
+    ["What's New in Circle", () => circle.action("show_whats_new")],
     [() => (state?.bug_report ? "Finish Bug Report" : "Report a Bug"), () => (state?.bug_report ? circle.send({ cmd: "bug_report_stop" }) : circle.action("report_bug"))],
     ["History", () => circle.action("show_history")],
     ["Appearance: Dark", () => circle.action({ appearance: "dark" })],
@@ -80,6 +81,7 @@
     document.body.className = backdrop ? "backdrop" : mode === "find" ? "find" : "";
     document.body.classList.toggle("sharp", backdrop && opts.blur === false);
     document.body.classList.toggle("settings", mode === "settings");
+    document.body.classList.toggle("whatsnew", mode === "whats_new");
     if (backdrop) {
       document.documentElement.style.setProperty("--frame", opts.frame);
       document.documentElement.style.setProperty("--panel-top", `${opts.top}px`);
@@ -93,6 +95,13 @@
     }[mode] || "Search or enter an address";
     if (mode === "settings") {
       openSettings();
+      return;
+    }
+    if (mode === "whats_new") {
+      $("whatsnew-version").textContent = `Circle ${opts.version}`;
+      $("notes").innerHTML = renderNotes(opts.notes || "");
+      $("notes").scrollTop = 0;
+      $("got-it").focus();
       return;
     }
     input.value = opts.text || "";
@@ -118,6 +127,62 @@
       box.append(img);
     }
   };
+
+  // The CHANGELOG's Markdown, as much of it as release notes use: version
+  // headings, section headings, bullets (with wrapped lines), `code`,
+  // *emphasis* and **bold**. Several versions get their names as headings.
+  function renderNotes(markdown) {
+    const inline = (text) =>
+      circle.esc(text)
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    const several = (markdown.match(/^## \[/gm) || []).length > 1;
+    const out = [];
+    let list = null;
+    let item = null;
+    const flush = () => {
+      if (item !== null) list.push(`<li>${inline(item)}</li>`);
+      item = null;
+    };
+    const endList = () => {
+      flush();
+      if (list) out.push(`<ul>${list.join("")}</ul>`);
+      list = null;
+    };
+    for (const line of markdown.split("\n")) {
+      const version = line.match(/^## \[([^\]]+)\]/);
+      if (version) {
+        endList();
+        if (several) out.push(`<h2>Circle ${circle.esc(version[1])}</h2>`);
+      } else if (line.startsWith("### ")) {
+        endList();
+        out.push(`<h3>${inline(line.slice(4))}</h3>`);
+      } else if (/^[-*] /.test(line)) {
+        flush();
+        list ||= [];
+        item = line.slice(2);
+      } else if (line.trim() && item !== null && /^\s/.test(line)) {
+        item += ` ${line.trim()}`;
+      } else if (line.trim()) {
+        endList();
+        out.push(`<p>${inline(line)}</p>`);
+      }
+    }
+    endList();
+    return out.join("");
+  }
+  $("got-it").onclick = () => close();
+  $("release-notes").onclick = () => {
+    close();
+    circle.send({ cmd: "navigate", input: "https://github.com/dobrinov/circle/releases", new_tab: true });
+  };
+  document.addEventListener("keydown", (event) => {
+    if (mode === "whats_new" && event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  });
 
   // Settings load once, in a frame, and stay loaded between openings.
   let settingsFrame = null;

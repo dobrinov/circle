@@ -7,6 +7,11 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+### Added
+
+- *What's new*: after an update, Circle shows the release notes of the new
+  version once (and again from Help › What's New in Circle).
+
 ### Fixed
 
 - Quitting Circle (⌘Q) could crash on the way out and leave a crash report.
@@ -31,11 +36,11 @@ as you go; `cargo xtask release <version>` turns them into a release.
   recording, downloads, updates, bug reports and agent control.
 - The splash screen hints at everyday shortcuts.
 - Private browsing is now called fap mode 🙈.
+- Linux packages are stripped of debug symbols, so they are much smaller.
 
 ### Fixed
 
 - Collapsing the sidebar no longer squares off the window's left corners.
-- Linux packages are stripped of debug symbols, so they are much smaller.
 
 ## [0.1.0] - 2026-10-23
 

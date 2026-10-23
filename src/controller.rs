@@ -58,6 +58,8 @@ pub enum PaletteMode {
     Spotlight,
     /// ⌘,: the settings panel over the blurred page.
     Settings,
+    /// The release notes, shown once after an update (and from Help).
+    WhatsNew,
 }
 
 /// Things the user can trigger from the keyboard, menus or UI buttons.
@@ -104,6 +106,7 @@ pub enum Action {
     CancelRecording,
     StopRecording,
     ReportBug,
+    ShowWhatsNew,
     CheckForUpdates,
     /// Quits and installs the downloaded update, then relaunches.
     RestartToUpdate,
@@ -403,6 +406,8 @@ pub enum Cmd {
     RecordingSaving,
     UpdateStatus(crate::updater::Status),
     CheckUpdates,
+    /// Shortly after starting a newer version: show what changed.
+    WhatsNew,
     /// Screenshots of the visible pages (rect within the content area, JPEG
     /// as base64) for the command bar's blurred backdrop.
     PaletteBackdrop(u64, Vec<(Rect, String)>),
@@ -517,6 +522,7 @@ enum Timer {
     /// Shows the command bar even if its backdrop isn't ready yet.
     ShowPalette(u64),
     UpdateCheck,
+    WhatsNew,
 }
 
 fn schedule(timer: Timer, delay_ms: i64) {
@@ -552,6 +558,7 @@ wrap_task! {
                 Timer::AgentIdle => Cmd::AgentIdle,
                 Timer::ShowPalette(generation) => Cmd::ShowPalette(generation),
                 Timer::UpdateCheck => Cmd::CheckUpdates,
+                Timer::WhatsNew => Cmd::WhatsNew,
             });
         }
     }
@@ -686,6 +693,10 @@ pub struct Controller {
     recording_saving: bool,
     update_status: Option<crate::updater::Status>,
     update_checking: bool,
+    /// Release notes to show once the window is up (after an update).
+    pending_whats_new: Option<String>,
+    /// The notes the What's new panel shows.
+    whats_new: String,
     /// The memory-only browsing session of the private space, while open.
     private_context: Option<RequestContext>,
     /// The normal space to return to when the private one ends.
@@ -812,7 +823,21 @@ fn theme_color(hue: u16, dark: bool) -> u32 {
 impl Controller {
     fn new(profile_dir: &Path) -> Self {
         let session_path = Session::path(profile_dir);
-        let session = Session::load(&session_path);
+        let returning = session_path.exists();
+        let mut session = Session::load(&session_path);
+        // After an update, show what changed since the version last run.
+        // Sessions from before this was tracked only get this version's notes;
+        // new installs get none.
+        let version = env!("CARGO_PKG_VERSION");
+        let pending_whats_new = match session.seen_version.as_deref() {
+            Some(seen) if crate::updater::is_newer(version, seen) => {
+                Some(crate::whatsnew::notes(Some(seen), version))
+            }
+            None if returning => Some(crate::whatsnew::notes(None, version)),
+            _ => None,
+        }
+        .filter(|notes| !notes.is_empty());
+        session.seen_version = Some(version.to_owned());
         let background = theme_color(session.space().hue, false);
         let sidebar = views::create_browser_view(Role::Sidebar, SIDEBAR_URL, background);
         let palette = views::create_browser_view(Role::Palette, PALETTE_URL, 0xFFFF_FFFF);
@@ -860,6 +885,8 @@ impl Controller {
             recording_saving: false,
             update_status: None,
             update_checking: false,
+            pending_whats_new,
+            whats_new: String::new(),
             private_context: None,
             last_normal_space: 0,
             record_prompt: None,
@@ -1043,6 +1070,15 @@ impl Controller {
                 self.ui_dirty = true;
                 self.push_settings();
             }
+            Cmd::WhatsNew => {
+                if let Some(notes) = self.pending_whats_new.take() {
+                    self.whats_new = notes;
+                    self.changed();
+                    if self.palette_mode.is_none() {
+                        self.open_palette(PaletteMode::WhatsNew);
+                    }
+                }
+            }
             Cmd::CheckUpdates => {
                 if self.session.auto_update {
                     crate::updater::check(self.updates_dir(), true);
@@ -1140,6 +1176,10 @@ impl Controller {
                     }
                     "palette" => {
                         self.palette_ready = true;
+                        if self.pending_whats_new.is_some() {
+                            // Once the first page has had a moment to show.
+                            schedule(Timer::WhatsNew, 1500);
+                        }
                         if let Some(mode) = self.palette_mode {
                             self.open_palette(mode);
                         }
@@ -1597,6 +1637,10 @@ impl Controller {
             }
             Action::StopRecording => crate::recorder::stop(),
             Action::ReportBug => self.show_page("circle://ui/bugreport.html"),
+            Action::ShowWhatsNew => {
+                self.whats_new = crate::whatsnew::notes(None, env!("CARGO_PKG_VERSION"));
+                self.open_palette(PaletteMode::WhatsNew);
+            }
             Action::CheckForUpdates => {
                 // Asked for: download even when automatic updates are off.
                 crate::updater::check(self.updates_dir(), true);
@@ -2737,7 +2781,10 @@ impl Controller {
                 .map(|t| t.url.clone())
                 .unwrap_or_default(),
             PaletteMode::Find => self.find_text.clone(),
-            PaletteMode::NewTab | PaletteMode::Spotlight | PaletteMode::Settings => String::new(),
+            PaletteMode::NewTab
+            | PaletteMode::Spotlight
+            | PaletteMode::Settings
+            | PaletteMode::WhatsNew => String::new(),
         };
         self.push_state();
         let area = self.content.bounds();
@@ -2747,6 +2794,8 @@ impl Controller {
             "backdrop": mode != PaletteMode::Find,
             "keep_backdrop": reopen,
             "blur": self.session.spotlight_blur,
+            "notes": (mode == PaletteMode::WhatsNew).then_some(&self.whats_new),
+            "version": env!("CARGO_PKG_VERSION"),
             // No page to blur: the splash shows, so the backdrop imitates it.
             "splash": self.shown_tabs().is_empty(),
             "frame": format!("#{:06x}", self.background() & 0xFF_FFFF),
