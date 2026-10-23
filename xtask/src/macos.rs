@@ -217,6 +217,11 @@ pub fn package(options: &Options, app: &Path) -> Result<Vec<PathBuf>> {
         .arg(&staging)
         .arg(&dmg))?;
     fs::remove_dir_all(&staging)?;
+    // With a Developer ID, sign the disk image too (Gatekeeper checks it).
+    let identity = env::var("CIRCLE_CODESIGN_IDENTITY").unwrap_or_else(|_| "-".into());
+    if identity != "-" {
+        sign(&dmg, &identity, None)?;
+    }
 
     // Optional notarization (CI provides these for signed releases).
     if let (Ok(id), Ok(password), Ok(team)) = (

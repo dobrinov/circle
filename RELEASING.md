@@ -61,16 +61,40 @@ To redo a failed release, delete the GitHub release and the tag
 
 Unsigned builds work, but macOS and Windows warn about them.
 
-**macOS.** Without secrets, apps are signed ad hoc: people have to
-right-click › Open the first time. To sign and notarize, add these
-repository secrets (Settings › Secrets and variables › Actions):
+**macOS.** Releases must be signed with a Developer ID and notarized: the
+Release workflow fails on macOS without these secrets, so nothing ships that
+macOS refuses to open. (CI and nightly builds without them are signed ad hoc.)
+Add them under Settings › Secrets and variables › Actions:
 
 | Secret | Value |
 | --- | --- |
 | `MACOS_CERTIFICATE` | base64 of your Developer ID Application `.p12` |
 | `MACOS_CERTIFICATE_PASSWORD` | its password |
 | `MACOS_CODESIGN_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
-| `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID` | for notarization (an app-specific password) |
+| `APPLE_ID` | the Apple Account email of the developer account |
+| `APPLE_APP_PASSWORD` | an app-specific password for it |
+| `APPLE_TEAM_ID` | the 10-character team ID |
+
+One-time setup (needs a paid Apple Developer Program membership; only the
+account holder can create Developer ID certificates):
+
+1. **Certificate.** In Xcode › Settings › Accounts, select the team, then
+   *Manage Certificates…* › **+** › *Developer ID Application*. (Or on
+   developer.apple.com › Certificates › **+** › *Developer ID Application*,
+   with a CSR from Keychain Access › Certificate Assistant.)
+2. **Export it.** In Keychain Access › login › My Certificates, right-click
+   *Developer ID Application: …* › *Export…* as `circle.p12` with a password.
+   Then `base64 -i circle.p12 | pbcopy` and paste that as `MACOS_CERTIFICATE`.
+3. **Identity.** `security find-identity -v -p codesigning` prints the exact
+   name for `MACOS_CODESIGN_IDENTITY`; the team ID is in the parentheses.
+4. **App-specific password.** account.apple.com › Sign-In and Security ›
+   App-Specific Passwords › **+** (name it "Circle notarization").
+5. Delete `circle.p12` afterwards.
+
+Each macOS build then signs the app with the hardened runtime
+(`packaging/macos/*.entitlements` give Chromium its JIT), signs and
+notarizes the disk image, staples the ticket, and checks the result with
+`spctl` before anything is published.
 
 **Windows.** Builds are unsigned, so SmartScreen warns on first run until
 the installer builds reputation. Code signing would be added to

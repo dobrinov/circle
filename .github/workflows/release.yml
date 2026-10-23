@@ -33,6 +33,7 @@ jobs:
     secrets: inherit
     with:
       retention-days: 30
+      require-signing: true
 
   publish:
     name: Publish release
