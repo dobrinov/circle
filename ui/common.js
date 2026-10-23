@@ -42,6 +42,28 @@ circle.isLocal = (url) => {
   }
 };
 
+// A tab title without the site's name ("GitHub - torvalds/linux: Linux
+// kernel source tree" → "torvalds/linux"), which the address bar and the
+// favicon already show. Renamed tabs keep their name.
+circle.shortTitle = (tab) => {
+  const full = circle.title(tab);
+  if (tab.renamed) return full;
+  let site = "";
+  try {
+    const parts = new URL(tab.url).hostname.replace(/^www\./, "").split(".");
+    site = parts.length > 1 ? parts[parts.length - 2] : parts[0];
+  } catch {}
+  if (!site || site.length < 3) return full;
+  const esc = site.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let title = full
+    .replace(new RegExp(`^${esc}\\s*[-–—:|·]\\s+`, "i"), "")
+    .replace(new RegExp(`\\s+[-–—|·]\\s*${esc}(\\.\\w+)?$`, "i"), "");
+  // "owner/repo: a description" → "owner/repo".
+  const path = /^([\w.-]+\/[\w.-]+):\s/.exec(title);
+  if (path) title = path[1];
+  return title.trim() || full;
+};
+
 circle.title = (tab) => tab.title || circle.host(tab.url) || "New Tab";
 
 circle.hash = (text) => {

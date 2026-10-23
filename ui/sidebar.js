@@ -65,7 +65,7 @@
     const closeTitle = section === "today" ? "Close" : "Unload";
     const tip = tab.renamed ? `${circle.title(tab)}\n${tab.page_title || ""}\n${tab.url}` : `${circle.title(tab)}\n${tab.url}`;
     return `<div class="tab ${tabClasses(tab)}" draggable="true" data-id="${tab.id}" data-section="${section}"${folder ? ` data-in-folder="${folder}"` : ""} title="${circle.esc(tip)}">
-      ${leading}<span class="title ellipsis">${circle.esc(circle.title(tab))}</span>
+      ${leading}<span class="title ellipsis">${circle.esc(circle.shortTitle(tab))}</span>
       ${circle.isLocal(tab.url) ? DEV_BADGE : ""}${reset}<button class="x" data-close="${tab.id}" title="${closeTitle}">${X_ICON}</button>
     </div>`;
   }
@@ -100,13 +100,19 @@
     // Local dev servers show their port, which tells them apart.
     const local = circle.isLocal(url);
     const shown = local ? new URL(url).host : circle.host(url);
+    // The site, then the rest of the address, muted.
+    let path = "";
+    try {
+      const parsed = new URL(url);
+      if (/^https?:$/.test(parsed.protocol)) path = (parsed.pathname + parsed.search).replace(/\/$/, "");
+    } catch {}
     $("url").innerHTML = url
-      ? `${secure ? LOCK_ICON : ""}<span class="text ellipsis">${circle.esc(shown)}</span>${local ? DEV_BADGE : ""}`
+      ? `${secure ? LOCK_ICON : ""}<span class="text ellipsis">${circle.esc(shown)}<span class="path">${circle.esc(path)}</span></span>${local ? DEV_BADGE : ""}`
       : '<span class="text ellipsis" style="color:var(--muted)">Search or enter address</span>';
 
     // An agent is driving the browser.
     $("agent").innerHTML = state.agent.enabled && state.agent.active
-      ? '<span class="pulse"></span><span class="grow">Agent in control</span><button data-agent-stop title="Turn off agent control">Stop</button>'
+      ? '<span class="pulse"></span><span class="grow"><b>Agent in control</b></span><button data-agent-stop title="Turn off agent control">Stop</button>'
       : "";
 
     // A recording in progress, with its running time.
@@ -117,7 +123,7 @@
       clearInterval(bugBox.timer);
       bugBox.timer = null;
     } else if (!bugBox.timer) {
-      bugBox.innerHTML = `<span class="dot"></span><span class="grow">Bug report</span><time></time><button data-bug-stop title="Stop and write the report">Done</button>`;
+      bugBox.innerHTML = `<span class="dot"></span><span class="grow"><b>Bug report</b> <time></time></span><button data-bug-stop title="Stop and write the report">Done</button>`;
       const since = state.bug_report.since;
       const tick = () => {
         const s = Math.max(0, Math.floor((Date.now() - since) / 1000));
@@ -157,7 +163,7 @@
     } else if (!recBox.timer) {
       recBox.dataset.shown = "";
       const label = rec.format === "gif" ? "Recording GIF" : "Recording";
-      recBox.innerHTML = `<span class="dot"></span><span class="grow">${label}</span><time></time><button data-record-stop title="Stop and save to Downloads">Stop</button>`;
+      recBox.innerHTML = `<span class="dot"></span><span class="grow"><b>${label}</b> <time></time></span><button data-record-stop title="Stop and save to Downloads">Stop</button>`;
       const tick = () => {
         const s = Math.max(0, Math.floor((Date.now() - rec.since) / 1000));
         recBox.querySelector("time").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -190,7 +196,7 @@
     $("space-title").innerHTML = current.private
       ? `<span class="private-emoji" aria-hidden="true">🙈</span><span class="grow">Fap mode</span>
          <button class="end-private" data-end-private title="Close every tab here and forget them (⇧⌘.)">End</button>`
-      : `${current.icon ? `<span>${circle.esc(current.icon)}</span>` : ""}
+      : `${current.icon ? `<span>${circle.esc(current.icon)}</span>` : '<span class="space-mark" aria-hidden="true"></span>'}
       <span class="grow ellipsis" id="space-name" title="Double-click to rename">${circle.esc(current.name)}</span>
       <button class="muted-btn" data-space-menu="${current.id}">•••</button>`;
     $("private-note").hidden = !current.private;
@@ -199,6 +205,19 @@
       current.folders.map(folderBlock).join("") + current.pinned.map((t) => tabRow(t, "pinned")).join("");
     const today = current.tabs.map((t) => tabRow(t, "today")).join("");
     $("today").innerHTML = today;
+    // Labels only where there is something to label.
+    $("pinned-label").hidden = !current.pinned.length && !current.folders.length;
+    $("today-label").hidden = !current.tabs.length;
+    $("new-tab-key").textContent = state.platform === "macos" ? "⌘T" : "Ctrl+T";
+
+    // A download in progress, in the tray.
+    const active = (state.downloads || []).find((d) => !d.complete && !d.failed);
+    $("dlprog").innerHTML = active
+      ? `<svg class="state" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v7m0 0L5 6.5m3 3 3-3"/><path d="M2.5 10v1.5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V10"/></svg>
+         <span class="grow"><span style="display:flex;gap:6px"><b class="ellipsis">${circle.esc(active.name)}</b><span class="meta">${Math.max(active.percent, 0)}%</span></span><div class="bar"><i style="width:${Math.max(active.percent, 2)}%"></i></div></span>`
+      : "";
+    $("library-btn").classList.toggle("progress", !!active);
+    $("library-btn").style.setProperty("--p", active ? Math.max(active.percent, 3) : 0);
     $("new-tab").classList.toggle("active", false);
 
     renderLibrary();
@@ -207,17 +226,17 @@
     const update = state.update?.status;
     $("update").innerHTML =
       update?.status === "ready"
-        ? `<span class="grow"><b>Circle ${circle.esc(update.version)}</b> is ready</span><button data-update-restart title="Restart Circle to finish updating">Restart</button>`
+        ? `<svg class="state" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 11.8 4"/><path d="M13 1.8v3.4H9.6"/></svg><span class="grow"><b>Circle ${circle.esc(update.version)}</b> is ready</span><button class="primary" data-update-restart title="Restart Circle to finish updating">Restart</button>`
         : update?.status === "downloading"
-          ? `<span class="grow">Updating to ${circle.esc(update.version)}… ${update.percent}%<div class="bar"><i style="width:${update.percent}%"></i></div></span>`
+          ? `<svg class="state" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 11.8 4"/><path d="M13 1.8v3.4H9.6"/></svg><span class="grow">Updating to <b>${circle.esc(update.version)}</b> <span class="meta">${update.percent}%</span><div class="bar"><i style="width:${update.percent}%"></i></div></span>`
           : update?.status === "available"
-            ? `<span class="grow"><b>Circle ${circle.esc(update.version)}</b> is available</span><button data-update-page="${circle.esc(update.url)}">Download</button>`
+            ? `<svg class="state" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 11.8 4"/><path d="M13 1.8v3.4H9.6"/></svg><span class="grow"><b>Circle ${circle.esc(update.version)}</b> is available</span><button data-update-page="${circle.esc(update.url)}">Download</button>`
             : "";
 
     // Spaces
     $("spaces").innerHTML = state.spaces
       .map(
-        (s, i) => `<button class="space-dot ${i === state.active_space ? "active" : ""} ${s.private ? "private-dot" : ""}" data-space="${s.id}" title="${s.private ? "Fap mode" : `${circle.esc(s.name)} (⌃${i + 1})`}">${
+        (s, i) => `<button class="space-dot ${i === state.active_space ? "active" : ""} ${s.private ? "private-dot" : ""}" style="--dot: hsl(${s.hue} 55% 58%)" data-space="${s.id}" title="${s.private ? "Fap mode" : `${circle.esc(s.name)} (⌃${i + 1})`}">${
           s.private ? '<span class="private-emoji" aria-hidden="true">🙈</span>' : s.icon ? circle.esc(s.icon) : "<i></i>"
         }</button>`,
       )
@@ -258,6 +277,8 @@
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-agent-stop]")) return circle.action("toggle_agent_access");
     if (event.target.closest("[data-end-private]")) return circle.action("end_private");
+    if (event.target.closest("[data-clear-today]")) return circle.action("clear_today");
+    if (event.target.closest("#dlprog")) return $("library-btn").click();
     if (event.target.closest("[data-update-restart]")) return circle.action("restart_to_update");
     const updatePage = event.target.closest("[data-update-page]");
     if (updatePage) return circle.send({ cmd: "navigate", input: updatePage.dataset.updatePage, new_tab: true });
@@ -337,7 +358,8 @@
     if (open && libraryView === "downloads") for (const d of downloads) if (d.complete || d.failed) seenDownloads.add(d.id);
     const active = downloads.some((d) => !d.complete && !d.failed);
     const unseen = downloads.some((d) => (d.complete || d.failed) && !seenDownloads.has(d.id));
-    $("library-badge").classList.toggle("on", active || unseen);
+    // In progress shows as a ring around the button; the dot is for new files.
+    $("library-badge").classList.toggle("on", unseen);
 
     for (const b of document.querySelectorAll("[data-lib-view]")) {
       const on = b.dataset.libView === libraryView;

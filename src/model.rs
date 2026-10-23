@@ -135,6 +135,9 @@ pub struct Session {
     /// Download updates in the background and install them on quit.
     #[serde(default = "yes")]
     pub auto_update: bool,
+    /// Blur the page behind Spotlight (otherwise it is only dimmed).
+    #[serde(default = "yes")]
+    pub spotlight_blur: bool,
     /// Where developer tools open.
     #[serde(default)]
     pub devtools_dock: DevToolsDock,
@@ -208,6 +211,7 @@ impl Default for Session {
             grants: BTreeMap::new(),
             agent_access: false,
             auto_update: true,
+            spotlight_blur: true,
             devtools_dock: DevToolsDock::default(),
             devtools_width: default_devtools_width(),
             devtools_height: default_devtools_height(),

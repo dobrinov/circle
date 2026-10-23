@@ -214,7 +214,9 @@ at the shape they'll be shown in.
   `chrome-sandbox` helper. The `.deb` sets this up; with the tarball, run
   `sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox` or
   start with `--no-sandbox`.
-- Unsigned macOS builds must be opened with right-click → Open the first time,
-  and macOS asks once for keychain access to "Circle Safe Storage" (the key
+- Until releases are signed with a Developer ID and notarized, macOS says
+  "Apple could not verify Circle.app" the first time. Choose *Done*, then
+  *System Settings → Privacy & Security → Open Anyway* (or run
+  `xattr -dr com.apple.quarantine /Applications/Circle.app`). macOS also asks once for keychain access to "Circle Safe Storage" (the key
   that encrypts cookies); choose *Always Allow*. Debug builds use a mock
   keychain so rebuilds don't re-prompt.

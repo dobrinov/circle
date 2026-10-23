@@ -1,10 +1,89 @@
 // The settings page. Circle pushes the current values with
 // `circle.render(settings)`; changes go back as `{cmd: "settings", ...}`.
+// Loaded with ?panel it is the panel over the browser (inside the command
+// bar's overlay), which Esc closes.
 (() => {
   const $ = (id) => document.getElementById(id);
   const mac = navigator.platform.startsWith("Mac");
   const mod = mac ? "⌘" : "Ctrl+";
   const update = (fields) => circle.send({ cmd: "settings", ...fields });
+  const panel = new URLSearchParams(location.search).has("panel");
+  document.body.classList.toggle("panel", panel);
+
+  // ----- sections and search ---------------------------------------------------
+
+  const sections = [...document.querySelectorAll("section")];
+  const links = [...document.querySelectorAll("nav a")];
+  const findInput = $("find-input");
+
+  function showSection(id) {
+    for (const section of sections) section.classList.toggle("on", section.id === id);
+    for (const link of links) link.classList.toggle("on", link.hash === `#${id}`);
+    $("title").textContent = $(id).dataset.title;
+    $("content").scrollTop = 0;
+  }
+  for (const link of links) {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      findInput.value = "";
+      filter();
+      showSection(link.hash.slice(1));
+    });
+  }
+
+  // Searching shows every matching row, grouped by section.
+  function filter() {
+    const query = findInput.value.trim().toLowerCase();
+    document.body.classList.toggle("searching", !!query);
+    let any = false;
+    for (const section of sections) {
+      let hits = 0;
+      const sectionHit = section.dataset.title.toLowerCase().includes(query);
+      for (const row of section.querySelectorAll(".row")) {
+        if (row.id === "custom-search-row") continue;
+        const hit = !query || sectionHit || row.textContent.toLowerCase().includes(query);
+        row.style.display = hit ? "" : "none";
+        if (hit) hits++;
+      }
+      const match = !!query && (hits > 0 || sectionHit);
+      section.classList.toggle("match", match);
+      any ||= match;
+      const link = links.find((l) => l.hash === `#${section.id}`);
+      link?.classList.toggle("dim", !!query && !match);
+    }
+    document.body.classList.toggle("nothing", !!query && !any);
+    $("title").textContent = query ? "Search results" : (sections.find((s) => s.classList.contains("on"))?.dataset.title ?? "Settings");
+  }
+  findInput.addEventListener("input", filter);
+  showSection(sections[0].id);
+
+  const close = () => circle.send({ cmd: "close_palette" });
+  document.addEventListener("keydown", (event) => {
+    if (!panel) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (findInput.value) {
+        findInput.value = "";
+        filter();
+      } else close();
+    } else if ((event.metaKey || event.ctrlKey) && event.key === "f") {
+      event.preventDefault();
+      findInput.focus();
+    }
+  });
+  document.querySelector(".esc").addEventListener("click", close);
+  // Clicking outside Circle's overlay (the sidebar, a page) dismisses the panel.
+  if (panel) {
+    window.addEventListener("blur", () => {
+      setTimeout(() => {
+        try {
+          // Focus went somewhere other than the overlay around the panel.
+          if (parent.document.activeElement?.tagName !== "IFRAME" && !parent.document.hasFocus()) close();
+        } catch {}
+      });
+    });
+  }
+  $("fap-key").textContent = mac ? "⇧⌘N" : "Ctrl+Shift+N";
 
   const segmented = (id, field) => {
     $(id).addEventListener("click", (event) => {
@@ -41,6 +120,7 @@
   $("report-bug").addEventListener("click", () => circle.action("report_bug"));
   $("check-updates").addEventListener("click", () => circle.action("check_for_updates"));
   $("auto-update").addEventListener("click", (e) => update({ auto_update: e.target.getAttribute("aria-checked") !== "true" }));
+  $("spotlight-blur").addEventListener("click", (e) => update({ spotlight_blur: e.target.getAttribute("aria-checked") !== "true" }));
   $("grants").addEventListener("click", (event) => {
     const button = event.target.closest("[data-forget]");
     if (button) update({ forget_grant: button.dataset.forget });
@@ -75,7 +155,10 @@
   }
 
   circle.render = (s) => {
+    if (s.hue !== undefined) circle.setHue(s.hue);
     $("version").textContent = s.version;
+    $("nav-version").textContent = `Circle ${s.version}`;
+    $("spotlight-blur").setAttribute("aria-checked", s.spotlight_blur !== false);
     $("update-status").textContent = updateText(s.update);
     $("auto-update").setAttribute("aria-checked", s.auto_update);
     setSegment("appearance", s.appearance);
@@ -108,6 +191,7 @@
           .join("")
       : `<div class="empty">Sites you allow to use your camera, microphone or location will appear here.</div>`;
 
+    if (findInput.value) filter();
     $("about").textContent = `Circle ${s.version}${s.profile_dir ? ` · Profile: ${s.profile_dir}` : ""}`;
   };
 

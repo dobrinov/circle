@@ -6,69 +6,133 @@
     <title>Settings</title>
     <link rel="stylesheet" href="common.css" />
     <style>
-      html, body { background: var(--panel); color: var(--panel-fg); height: auto; min-height: 100%; overflow: auto; }
+      /* Shared tokens: radii 6 (controls), 10 (rows, cards), 18 (panels). */
+      html, body { background: var(--panel); color: var(--panel-fg); height: 100%; overflow: hidden; }
+      /* Opened as a page (not the panel over the browser): centre the panel. */
+      body:not(.panel) { display: grid; place-items: center; padding: 24px; background: var(--panel-select); }
+      body:not(.panel) #settings { width: min(860px, 100%); height: min(640px, 100%); border-radius: 18px; box-shadow: var(--shadow); }
 
-      main { max-width: 680px; margin: 0 auto; padding: 50px 24px 72px; }
-      h1 { margin: 0 0 26px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
-      h2 {
-        margin: 30px 0 8px;
-        padding: 0 4px;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--panel-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+      #settings { display: flex; height: 100%; background: var(--panel); overflow: hidden; }
+
+      nav {
+        width: 220px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 16px 12px 14px;
+        border-right: 1px solid var(--line);
+        background: var(--panel-select);
+        background: color-mix(in srgb, var(--panel-select) 45%, transparent);
       }
-
-      .card { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-      .row {
+      #find {
         display: flex;
         align-items: center;
-        gap: 16px;
-        min-height: 56px;
-        padding: 10px 16px;
+        gap: 8px;
+        height: 32px;
+        margin-bottom: 10px;
+        padding: 0 10px;
+        border-radius: 10px;
+        background: var(--panel-select);
+        color: var(--panel-muted);
       }
+      #find svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+      #find input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: none; color: var(--panel-fg); font: inherit; user-select: text; }
+      nav a {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 32px;
+        padding: 0 10px;
+        border-radius: 10px;
+        color: var(--panel-fg);
+        text-decoration: none;
+        opacity: 0.86;
+      }
+      nav a svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+      nav a:hover { background: var(--panel-select); opacity: 1; }
+      nav a.on { background: hsl(var(--hue) 70% 55% / 0.14); font-weight: 600; opacity: 1; }
+      nav a.dim { opacity: 0.35; }
+      body.searching nav a.on { background: none; font-weight: inherit; }
+      nav .grow { flex: 1; }
+      #nav-version { padding: 0 10px; font-size: 11px; color: var(--panel-muted); }
+
+      #content { flex: 1; min-width: 0; overflow: auto; padding: 24px 32px 40px; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+      h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+      .esc {
+        height: 22px;
+        padding: 0 7px;
+        border-radius: 6px;
+        background: var(--panel-select);
+        color: var(--panel-muted);
+        font-size: 12px;
+        font-weight: 600;
+        display: grid;
+        place-items: center;
+      }
+      body:not(.panel) .esc { display: none; }
+
+      section { display: none; flex-direction: column; gap: 10px; margin-bottom: 26px; }
+      section.on, body.searching section.match { display: flex; }
+      section h2 { display: none; margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--panel-muted); }
+      body.searching section h2 { display: block; }
+      body.searching section.on:not(.match) { display: none; }
+      #no-match { display: none; color: var(--panel-muted); }
+      body.searching.nothing #no-match { display: block; }
+
+      .sub { font-size: 13px; font-weight: 600; }
+      .note { font-size: 12px; color: var(--panel-muted); }
+
+      .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+      .row { display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 10px 16px; }
       .row + .row { border-top: 1px solid var(--line); }
-      .row .label { flex: 1; min-width: 0; font-size: 14px; }
+      .row[hidden] { display: none; }
+      .row .label { flex: 1; min-width: 0; font-size: 13px; }
       .row .label small { display: block; margin-top: 2px; color: var(--panel-muted); font-size: 12px; }
       .row .value { flex: none; display: flex; align-items: center; gap: 8px; }
 
-      .segmented {
+      /* Theme previews: the sidebar colour, and a page inside it. */
+      .themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .themes button {
         display: flex;
-        padding: 2px;
-        border-radius: 9px;
-        background: var(--panel-select);
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px;
+        border-radius: 10px;
+        box-shadow: inset 0 0 0 1px var(--line);
+        text-align: left;
+        font-weight: 600;
       }
-      .segmented button {
-        height: 28px;
-        padding: 0 12px;
-        border-radius: 7px;
-        font-weight: 500;
-        color: var(--panel-muted);
-      }
+      .themes button.on { box-shadow: inset 0 0 0 2px var(--accent); }
+      .themes .preview { display: flex; height: 76px; border-radius: 6px; overflow: hidden; }
+      .themes .preview::before { content: ""; width: 30%; }
+      .themes .preview::after { content: ""; flex: 1; margin: 6px 6px 6px 0; border-radius: 4px; }
+      .light .preview { background: hsl(var(--hue) 45% 82%); }
+      .light .preview::after { background: #fff; }
+      .dark .preview { background: hsl(var(--hue) 20% 17%); }
+      .dark .preview::after { background: hsl(var(--hue) 10% 9%); }
+      .system .preview { background: linear-gradient(90deg, hsl(var(--hue) 45% 82%) 50%, hsl(var(--hue) 20% 17%) 50%); }
+      .system .preview::after { background: linear-gradient(90deg, #fff 38%, hsl(var(--hue) 10% 9%) 38%); }
+
+      /* One segmented control, used everywhere. */
+      .segmented { display: flex; padding: 2px; border-radius: 8px; background: var(--panel-select); }
+      .segmented button { height: 26px; padding: 0 12px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--panel-muted); }
       .segmented button.on { background: var(--panel); color: var(--panel-fg); box-shadow: var(--shadow); }
 
       select, input[type="text"] {
-        height: 32px;
+        height: 30px;
         padding: 0 10px;
-        border-radius: 8px;
-        border: 1px solid var(--line);
-        background: var(--panel);
+        border-radius: 6px;
+        border: 0;
+        background: var(--panel-select);
         color: inherit;
         font: inherit;
       }
-      input[type="text"] { width: 100%; user-select: text; }
+      #custom-search { width: 100%; user-select: text; }
       input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-      #custom-search-row[hidden] { display: none; }
 
-      .switch {
-        position: relative;
-        width: 38px;
-        height: 22px;
-        border-radius: 11px;
-        background: var(--line);
-        transition: background 0.15s;
-      }
+      .switch { position: relative; width: 38px; height: 22px; flex: none; border-radius: 11px; background: var(--line); transition: background 0.15s; }
       .switch::after {
         content: "";
         position: absolute;
@@ -84,146 +148,189 @@
       .switch[aria-checked="true"] { background: var(--accent); }
       .switch[aria-checked="true"]::after { transform: translateX(16px); }
 
-      .button {
-        height: 32px;
-        padding: 0 14px;
-        border-radius: 8px;
-        border: 1px solid var(--line);
-        font-weight: 600;
-      }
-      .button:hover { background: var(--panel-select); }
-      .button.danger { color: hsl(0 70% 52%); }
+      /* Filled buttons, no outlines. */
+      .button { height: 30px; padding: 0 14px; border-radius: 6px; background: var(--panel-select); font-size: 13px; font-weight: 600; }
+      .button:hover { background: color-mix(in srgb, var(--panel-fg) 12%, transparent); }
+      .button.danger { color: hsl(0 70% 50%); background: hsl(0 70% 50% / 0.1); }
+      .button.danger:hover { background: hsl(0 70% 50% / 0.16); }
 
-      .grant .label { font-size: 13px; }
       .empty { padding: 16px; color: var(--panel-muted); }
-
       kbd {
         display: inline-block;
         min-width: 22px;
         padding: 2px 6px;
-        border-radius: 5px;
-        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel-select);
         font-family: inherit;
         font-size: 12px;
         line-height: 1.3;
         text-align: center;
         color: var(--panel-muted);
       }
-      .about { margin-top: 30px; padding: 0 4px; color: var(--panel-muted); font-size: 12px; user-select: text; }
+      .about { margin: 4px 0 0; color: var(--panel-muted); font-size: 12px; user-select: text; }
+
+      @media (max-width: 620px) {
+        nav { width: 64px; padding: 12px 8px; }
+        nav a { justify-content: center; padding: 0; }
+        nav a span, #find, #nav-version { display: none; }
+        #content { padding: 20px; }
+      }
     </style>
   </head>
   <body>
-    <main>
-      <h1>Settings</h1>
+    <div id="settings" role="dialog" aria-label="Settings">
+      <nav aria-label="Settings sections">
+        <label id="find">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+          <input id="find-input" type="text" placeholder="Search settings" aria-label="Search settings" spellcheck="false" autocomplete="off" />
+        </label>
+        <a href="#appearance-section"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" /><path d="M8 2.5v11" /></svg><span>Appearance</span></a>
+        <a href="#search-section"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg><span>Search</span></a>
+        <a href="#tabs-section"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M2 6.5h12" /></svg><span>Tabs and spaces</span></a>
+        <a href="#privacy-section"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2 3 4v4c0 3 2.2 5 5 6 2.8-1 5-3 5-6V4z" /></svg><span>Privacy</span></a>
+        <a href="#permissions-section"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg><span>Site permissions</span></a>
+        <a href="#developer-section"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5.5 4.5-3.5 3.5 3.5 3.5M10.5 4.5l3.5 3.5-3.5 3.5" /></svg><span>Developer and agents</span></a>
+        <a href="#updates-section"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 11.8 4" /><path d="M13 1.8v3.4H9.6" /></svg><span>Updates and help</span></a>
+        <a href="#shortcuts-section"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="4" width="13" height="8.5" rx="1.5" /><path d="M4 7h1M7.5 7h1M11 7h1M5 10h6" /></svg><span>Shortcuts</span></a>
+        <div class="grow"></div>
+        <div id="nav-version"></div>
+      </nav>
 
-      <h2>Appearance</h2>
-      <div class="card">
-        <div class="row">
-          <div class="label">Theme<small>Applies to Circle and to websites that support dark mode</small></div>
-          <div class="value segmented" id="appearance" role="radiogroup" aria-label="Theme">
-            <button data-value="system" role="radio">System</button>
-            <button data-value="light" role="radio">Light</button>
-            <button data-value="dark" role="radio">Dark</button>
+      <div id="content">
+        <header>
+          <h1 id="title">Appearance</h1>
+          <span class="esc" title="Close">esc</span>
+        </header>
+
+        <section id="appearance-section" data-title="Appearance">
+          <h2>Appearance</h2>
+          <div class="sub">Theme</div>
+          <div class="themes" id="appearance" role="radiogroup" aria-label="Theme">
+            <button class="system" data-value="system" role="radio"><span class="preview"></span>Match system</button>
+            <button class="light" data-value="light" role="radio"><span class="preview"></span>Light</button>
+            <button class="dark" data-value="dark" role="radio"><span class="preview"></span>Dark</button>
           </div>
-        </div>
-      </div>
-
-      <h2>Search</h2>
-      <div class="card">
-        <div class="row">
-          <div class="label">Search engine<small>Used for searches from the address bar and Spotlight</small></div>
-          <div class="value">
-            <select id="search">
-              <option value="https://www.google.com/search?q=%s">Google</option>
-              <option value="https://duckduckgo.com/?q=%s">DuckDuckGo</option>
-              <option value="https://www.bing.com/search?q=%s">Bing</option>
-              <option value="https://search.brave.com/search?q=%s">Brave Search</option>
-              <option value="https://kagi.com/search?q=%s">Kagi</option>
-              <option value="https://www.ecosia.org/search?q=%s">Ecosia</option>
-              <option value="custom">Custom…</option>
-            </select>
+          <div class="note">Websites that support dark mode follow it too.</div>
+          <div class="card">
+            <div class="row">
+              <div class="label">Blur behind Spotlight<small>Off shows the page sharp behind it, only dimmed</small></div>
+              <div class="value"><button class="switch" id="spotlight-blur" role="switch" aria-label="Blur behind Spotlight"></button></div>
+            </div>
           </div>
-        </div>
-        <div class="row" id="custom-search-row" hidden>
-          <div class="label">
-            <input type="text" id="custom-search" placeholder="https://example.com/search?q=%s" spellcheck="false" />
-            <small>Use %s where the search terms go</small>
+        </section>
+
+        <section id="search-section" data-title="Search">
+          <h2>Search</h2>
+          <div class="card">
+            <div class="row">
+              <div class="label">Search engine<small>Used for searches from the address bar and Spotlight</small></div>
+              <div class="value">
+                <select id="search">
+                  <option value="https://www.google.com/search?q=%s">Google</option>
+                  <option value="https://duckduckgo.com/?q=%s">DuckDuckGo</option>
+                  <option value="https://www.bing.com/search?q=%s">Bing</option>
+                  <option value="https://search.brave.com/search?q=%s">Brave Search</option>
+                  <option value="https://kagi.com/search?q=%s">Kagi</option>
+                  <option value="https://www.ecosia.org/search?q=%s">Ecosia</option>
+                  <option value="custom">Custom…</option>
+                </select>
+              </div>
+            </div>
+            <div class="row" id="custom-search-row" hidden>
+              <div class="label">
+                <input type="text" id="custom-search" placeholder="https://example.com/search?q=%s" spellcheck="false" />
+                <small>Use %s where the search terms go</small>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <h2>Tabs</h2>
-      <div class="card">
-        <div class="row">
-          <div class="label">Archive unpinned tabs after<small>Like Arc, idle tabs tidy themselves away. Find them again in Recently Closed.</small></div>
-          <div class="value">
-            <select id="archive">
-              <option value="12">12 hours</option>
-              <option value="24">1 day</option>
-              <option value="168">7 days</option>
-              <option value="720">30 days</option>
-              <option value="0">Never</option>
-            </select>
+        <section id="tabs-section" data-title="Tabs and spaces">
+          <h2>Tabs and spaces</h2>
+          <div class="card">
+            <div class="row">
+              <div class="label">Archive unpinned tabs after<small>Like Arc, idle tabs tidy themselves away. Find them again in Recently Closed.</small></div>
+              <div class="value">
+                <select id="archive">
+                  <option value="12">12 hours</option>
+                  <option value="24">1 day</option>
+                  <option value="168">7 days</option>
+                  <option value="720">30 days</option>
+                  <option value="0">Never</option>
+                </select>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <h2>Privacy</h2>
-      <div class="card">
-        <div class="row">
-          <div class="label">Browsing history</div>
-          <div class="value"><button class="button" id="history">Show History</button></div>
-        </div>
-        <div class="row">
-          <div class="label">Clear browsing data<small>History, cookies and cached files</small></div>
-          <div class="value"><button class="button danger" id="clear">Clear…</button></div>
-        </div>
-      </div>
-
-      <h2>Site permissions</h2>
-      <div class="card" id="grants"></div>
-
-      <h2>Developer</h2>
-      <div class="card">
-        <div class="row">
-          <div class="label">Developer tools position</div>
-          <div class="value segmented" id="dock" role="radiogroup" aria-label="Developer tools position">
-            <button data-value="right" role="radio">Right</button>
-            <button data-value="bottom" role="radio">Bottom</button>
-            <button data-value="window" role="radio">Window</button>
+        <section id="privacy-section" data-title="Privacy">
+          <h2>Privacy</h2>
+          <div class="card">
+            <div class="row">
+              <div class="label">Browsing history<small>Everything you visited, searchable</small></div>
+              <div class="value"><button class="button" id="history">Show History</button></div>
+            </div>
+            <div class="row">
+              <div class="label">Clear browsing data<small>History, cookies and cached files</small></div>
+              <div class="value"><button class="button danger" id="clear">Clear…</button></div>
+            </div>
+            <div class="row">
+              <div class="label">Fap mode<small>A private space: nothing is saved, and screen capture can't see it</small></div>
+              <div class="value"><kbd id="fap-key"></kbd></div>
+            </div>
           </div>
-        </div>
-        <div class="row">
-          <div class="label">Allow AI agents to control Circle<small>Lets local agents (through circle-mcp) open tabs, read pages and click on your behalf</small></div>
-          <div class="value"><button class="switch" id="agent" role="switch" aria-label="Allow AI agents to control Circle"></button></div>
-        </div>
+        </section>
+
+        <section id="permissions-section" data-title="Site permissions">
+          <h2>Site permissions</h2>
+          <div class="card" id="grants"></div>
+        </section>
+
+        <section id="developer-section" data-title="Developer and agents">
+          <h2>Developer and agents</h2>
+          <div class="card">
+            <div class="row">
+              <div class="label">Developer tools position</div>
+              <div class="value segmented" id="dock" role="radiogroup" aria-label="Developer tools position">
+                <button data-value="right" role="radio">Right</button>
+                <button data-value="bottom" role="radio">Bottom</button>
+                <button data-value="window" role="radio">Window</button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="label">Allow AI agents to control Circle<small>Lets local agents (through circle-mcp) open tabs, read pages and click on your behalf</small></div>
+              <div class="value"><button class="switch" id="agent" role="switch" aria-label="Allow AI agents to control Circle"></button></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="updates-section" data-title="Updates and help">
+          <h2>Updates and help</h2>
+          <div class="card">
+            <div class="row">
+              <div class="label">Circle <span id="version"></span><small id="update-status">Checking…</small></div>
+              <div class="value"><button class="button" id="check-updates">Check now</button></div>
+            </div>
+            <div class="row">
+              <div class="label">Update automatically<small>Download new versions in the background and install them when Circle quits</small></div>
+              <div class="value"><button class="switch" id="auto-update" role="switch" aria-label="Update automatically"></button></div>
+            </div>
+            <div class="row">
+              <div class="label">Found a problem?<small>Describe it, show Circle what happens, and get the text of a GitHub issue</small></div>
+              <div class="value"><button class="button" id="report-bug">Report a Bug…</button></div>
+            </div>
+          </div>
+          <p class="about" id="about"></p>
+        </section>
+
+        <section id="shortcuts-section" data-title="Shortcuts">
+          <h2>Shortcuts</h2>
+          <div class="card" id="shortcuts"></div>
+        </section>
+
+        <p id="no-match">No settings match.</p>
       </div>
-
-      <h2>Updates</h2>
-      <div class="card">
-        <div class="row">
-          <div class="label">Circle <span id="version"></span><small id="update-status">Checking…</small></div>
-          <div class="value"><button class="button" id="check-updates">Check now</button></div>
-        </div>
-        <div class="row">
-          <div class="label">Update automatically<small>Download new versions in the background and install them when Circle quits</small></div>
-          <div class="value"><button class="switch" id="auto-update" role="switch" aria-label="Update automatically"></button></div>
-        </div>
-      </div>
-
-      <h2>Help</h2>
-      <div class="card">
-        <div class="row">
-          <div class="label">Found a problem?<small>Describe it, show Circle what happens, and get the text of a GitHub issue</small></div>
-          <div class="value"><button class="button" id="report-bug">Report a Bug…</button></div>
-        </div>
-      </div>
-
-      <h2>Keyboard shortcuts</h2>
-      <div class="card" id="shortcuts"></div>
-
-      <p class="about" id="about"></p>
-    </main>
+    </div>
 
     <script src="common.js"></script>
     <script src="settings.js"></script>

@@ -156,28 +156,33 @@ pub fn set_traffic_lights_hidden(hidden: bool) {
     TITLEBAR.with(|t| set_lights_hidden(&mut t.borrow_mut(), hidden));
 }
 
-fn round_view(view: &NSView, radius: f64) {
+/// CACornerMask bits for the left-hand corners, and for all four.
+pub const LEFT_CORNERS: usize = 1 | 4;
+pub const ALL_CORNERS: usize = 15;
+
+fn round_view(view: &NSView, radius: f64, corners: usize) {
     view.setWantsLayer(true);
     unsafe {
         let layer: Option<Retained<AnyObject>> = msg_send![view, layer];
         if let Some(layer) = layer {
             let _: () = msg_send![&*layer, setCornerRadius: radius];
+            let _: () = msg_send![&*layer, setMaskedCorners: corners];
             let _: () = msg_send![&*layer, setMasksToBounds: Bool::YES];
             let _: () = msg_send![&*layer, setCornerCurve: ns_string!("continuous")];
         }
     }
 }
 
-/// Rounds the content of the window hosting `browser`. Used for the command
-/// bar, which lives in its own overlay window.
-pub fn round_browser_window(browser: &cef::Browser, radius: f64) {
+/// Rounds the given corners of the window hosting `browser`. Used for the
+/// command bar and the peek sidebar, which live in their own overlay windows.
+pub fn round_browser_window(browser: &cef::Browser, radius: f64, corners: usize) {
     use cef::{ImplBrowser, ImplBrowserHost};
     // For browsers hosted in CEF Views this is the hosting window's content view.
     if let Some(view) = browser
         .host()
         .and_then(|h| ns_view(h.window_handle().cast()))
     {
-        round_view(view, radius);
+        round_view(view, radius, corners);
     }
 }
 

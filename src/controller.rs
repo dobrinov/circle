@@ -36,6 +36,10 @@ const MAX_DOWNLOADS: usize = 50;
 const RECORDING_IDS: u32 = 1 << 30;
 /// Width of the hover strip along the left edge that reveals the sidebar.
 const PEEK_STRIP: c_int = 8;
+/// Roughly the radius of the window's rounded corners. The folded peek strip
+/// stops this far from the top and bottom so it never squares them off; 12
+/// is also one stripe period, so its dev-server stripes stay aligned.
+const WINDOW_RADIUS: c_int = 12;
 const TICK_MS: i64 = 10 * 60 * 1000;
 const SAVE_DELAY_MS: i64 = 1500;
 const GAP: c_int = 8;
@@ -52,6 +56,8 @@ pub enum PaletteMode {
     Find,
     /// ⌘K: switch tabs, open a site in a new tab, or search.
     Spotlight,
+    /// ⌘,: the settings panel over the blurred page.
+    Settings,
 }
 
 /// Things the user can trigger from the keyboard, menus or UI buttons.
@@ -211,6 +217,8 @@ pub enum UiCmd {
         agent_access: Option<bool>,
         #[serde(default)]
         auto_update: Option<bool>,
+        #[serde(default)]
+        spotlight_blur: Option<bool>,
         /// A remembered site permission to forget.
         #[serde(default)]
         forget_grant: Option<String>,
@@ -1087,7 +1095,9 @@ impl Controller {
                 #[cfg(target_os = "macos")]
                 match role {
                     Role::Tab(_) => self.update_page_corners(),
-                    Role::Palette => crate::mac::round_browser_window(&browser, 12.0),
+                    Role::Palette => {
+                        crate::mac::round_browser_window(&browser, 12.0, crate::mac::ALL_CORNERS)
+                    }
                     _ => {}
                 }
                 #[cfg(not(target_os = "macos"))]
@@ -1259,10 +1269,14 @@ impl Controller {
                 devtools_dock,
                 agent_access,
                 auto_update,
+                spotlight_blur,
                 forget_grant,
             } => {
                 if let Some(on) = auto_update {
                     self.session.auto_update = on;
+                }
+                if let Some(on) = spotlight_blur {
+                    self.session.spotlight_blur = on;
                 }
                 if let Some(appearance) = appearance {
                     self.handle_action(Action::Appearance(appearance));
@@ -1534,7 +1548,13 @@ impl Controller {
                 }
             }
             Action::ShowHistory => self.show_history(false),
-            Action::ShowSettings => self.show_page("circle://ui/settings.html"),
+            Action::ShowSettings => {
+                if self.palette_mode == Some(PaletteMode::Settings) {
+                    self.close_palette();
+                } else {
+                    self.open_palette(PaletteMode::Settings);
+                }
+            }
             Action::Record(format) => {
                 if self.recording.is_some() {
                     crate::recorder::stop();
@@ -2290,6 +2310,8 @@ impl Controller {
             "profile_dir": self.session_path.parent().map(|p| p.display().to_string()),
             "version": env!("CARGO_PKG_VERSION"),
             "auto_update": self.session.auto_update,
+            "spotlight_blur": self.session.spotlight_blur,
+            "hue": self.session.space().hue,
             "update": self.update_json(),
         })
     }
@@ -2377,6 +2399,13 @@ impl Controller {
                 format!("window.circle&&circle.render({})", self.settings_json())
             });
             run_js(&live.view, code);
+        }
+        // The settings panel lives in the command bar's overlay.
+        if self.palette_mode == Some(PaletteMode::Settings) && self.palette_ready {
+            run_js(
+                &self.palette,
+                &format!("window.circle&&circle.settings({})", self.settings_json()),
+            );
         }
     }
 
@@ -2673,6 +2702,9 @@ impl Controller {
         // page. The overlay waits (briefly) for it, so the page never
         // flashes away.
         let snapshot = mode != PaletteMode::Find && !reopen && self.capture_backdrop();
+        if mode == PaletteMode::Settings {
+            self.push_settings();
+        }
         if snapshot {
             self.palette_shown = false;
             schedule(Timer::ShowPalette(self.palette_generation), 250);
@@ -2690,7 +2722,7 @@ impl Controller {
                 .map(|t| t.url.clone())
                 .unwrap_or_default(),
             PaletteMode::Find => self.find_text.clone(),
-            PaletteMode::NewTab | PaletteMode::Spotlight => String::new(),
+            PaletteMode::NewTab | PaletteMode::Spotlight | PaletteMode::Settings => String::new(),
         };
         self.push_state();
         let area = self.content.bounds();
@@ -2699,6 +2731,7 @@ impl Controller {
             "text": text,
             "backdrop": mode != PaletteMode::Find,
             "keep_backdrop": reopen,
+            "blur": self.session.spotlight_blur,
             // No page to blur: the splash shows, so the backdrop imitates it.
             "splash": self.shown_tabs().is_empty(),
             "frame": format!("#{:06x}", self.background() & 0xFF_FFFF),
@@ -2818,17 +2851,32 @@ impl Controller {
         }
         let area = self.content.bounds();
         let height = area.y + area.height + area.y.min(GAP);
-        let width = if self.peek_open {
-            SIDEBAR_WIDTH
+        let bounds = if self.peek_open {
+            // It sits on the window's left edge, so it follows the window's
+            // own rounded corners there (its view exists only once shown).
+            #[cfg(target_os = "macos")]
+            if let Some(browser) = self.peek.browser() {
+                crate::mac::round_browser_window(
+                    &browser,
+                    f64::from(WINDOW_RADIUS),
+                    crate::mac::LEFT_CORNERS,
+                );
+            }
+            Rect {
+                x: 0,
+                y: 0,
+                width: SIDEBAR_WIDTH,
+                height,
+            }
         } else {
-            PEEK_STRIP
+            Rect {
+                x: 0,
+                y: WINDOW_RADIUS,
+                width: PEEK_STRIP,
+                height: height - 2 * WINDOW_RADIUS,
+            }
         };
-        overlay.set_bounds(Some(&Rect {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        }));
+        overlay.set_bounds(Some(&bounds));
         overlay.set_visible(1);
     }
 

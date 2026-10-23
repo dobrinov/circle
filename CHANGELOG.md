@@ -14,9 +14,21 @@ as you go; `cargo xtask release <version>` turns them into a release.
 - A splash screen when a space has no open tab: a varied greeting and a
   motivational line, a ⌘K hint and artwork in the space's colours.
 
+- Settings open as a panel over the blurred page (`⌘,`), with section
+  navigation, search, theme previews and a *Blur behind Spotlight* switch.
+
 ### Changed
 
+- A design pass over the sidebar: shorter tab titles (`owner/repo` on GitHub),
+  the address shows the host with a muted path, *Pinned* and *Today* labels
+  (with *Clear*), and one status tray above the space switcher for
+  recording, downloads, updates, bug reports and agent control.
+- The splash screen hints at everyday shortcuts.
 - Private browsing is now called fap mode 🙈.
+
+### Fixed
+
+- Collapsing the sidebar no longer squares off the window's left corners.
 - Linux packages are stripped of debug symbols, so they are much smaller.
 
 ## [0.1.0] - 2026-10-23

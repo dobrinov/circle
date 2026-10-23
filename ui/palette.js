@@ -78,6 +78,8 @@
     openedAt = Date.now();
     const backdrop = !!opts.backdrop;
     document.body.className = backdrop ? "backdrop" : mode === "find" ? "find" : "";
+    document.body.classList.toggle("sharp", backdrop && opts.blur === false);
+    document.body.classList.toggle("settings", mode === "settings");
     if (backdrop) {
       document.documentElement.style.setProperty("--frame", opts.frame);
       document.documentElement.style.setProperty("--panel-top", `${opts.top}px`);
@@ -89,6 +91,10 @@
       spotlight: "Search tabs, history or the web",
       edit: "Enter an address or search",
     }[mode] || "Search or enter an address";
+    if (mode === "settings") {
+      openSettings();
+      return;
+    }
     input.value = opts.text || "";
     input.focus();
     input.select();
@@ -111,6 +117,24 @@
       img.src = shot.src;
       box.append(img);
     }
+  };
+
+  // Settings load once, in a frame, and stay loaded between openings.
+  let settingsFrame = null;
+  function openSettings() {
+    if (!settingsFrame) {
+      settingsFrame = document.createElement("iframe");
+      settingsFrame.title = "Settings";
+      settingsFrame.src = "settings.html?panel";
+      $("settings").append(settingsFrame);
+    }
+    settingsFrame.focus();
+    const find = settingsFrame.contentDocument?.getElementById("find-input");
+    if (find) find.focus();
+    else settingsFrame.addEventListener("load", () => settingsFrame.contentDocument?.getElementById("find-input")?.focus(), { once: true });
+  }
+  circle.settings = (s) => {
+    settingsFrame?.contentWindow?.circle?.render?.(s);
   };
 
   function close() {
@@ -444,8 +468,12 @@
   $("close").onclick = close;
 
   // Clicking elsewhere (the sidebar) dismisses it (but not the find bar).
+  // Focus moving into the settings frame is not leaving, though.
   window.addEventListener("blur", () => {
-    if (mode && mode !== "find" && Date.now() - openedAt > 300) close();
+    setTimeout(() => {
+      if (document.activeElement?.tagName === "IFRAME") return;
+      if (mode && mode !== "find" && Date.now() - openedAt > 300) close();
+    });
   });
 
   circle.send({ cmd: "ready", from: "palette" });

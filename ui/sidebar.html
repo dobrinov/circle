@@ -162,6 +162,65 @@
         background: var(--line);
         margin: 6px 8px;
       }
+      .space-mark { width: 10px; height: 10px; border-radius: 50%; flex: none; background: hsl(var(--hue) 55% 58%); }
+      .sec-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 24px;
+        padding: 8px 8px 2px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .sec-label[hidden] { display: none; }
+      .sec-action { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); padding: 1px 6px; border-radius: 6px; }
+      .sec-action:hover { background: var(--hover); color: var(--fg); }
+      .kbd-hint { margin-left: auto; font-size: 11px; color: var(--muted); }
+      #url .path { color: var(--muted); }
+
+      /* ----- the status tray: one anatomy for every notice ----- */
+      #tray { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+      #tray:empty, #tray:not(:has(> div:not(:empty))) { margin-top: 0; }
+      #tray > div:not(:empty) {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 40px;
+        margin: 0;
+        padding: 6px 8px 6px 12px;
+        box-sizing: border-box;
+        border-radius: 10px;
+        background: var(--active);
+        color: var(--active-fg);
+        box-shadow: var(--shadow);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      #tray > div b { font-weight: 650; }
+      #tray > div .grow { flex: 1; min-width: 0; }
+      #tray > div time, #tray > div .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+      #tray > div button { height: 26px; padding: 0 10px; border-radius: 6px; background: var(--hover); font-weight: 650; flex: none; }
+      #tray > div button.primary { background: var(--accent); color: white; }
+      #tray .dot, #tray .pulse { width: 8px; height: 8px; border-radius: 50%; flex: none; background: hsl(358 75% 52%); animation: pulse 1.4s ease-in-out infinite; }
+      #tray .pulse { background: var(--accent); }
+      #tray .bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 5px; overflow: hidden; }
+      #tray .bar i { display: block; height: 100%; background: var(--accent); }
+      #tray svg.state { width: 14px; height: 14px; flex: none; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      #tray > #recording.prompt { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+
+      /* Downloads in progress: a ring around the button. */
+      #library-btn.progress::before {
+        content: "";
+        position: absolute;
+        inset: 2px;
+        border-radius: 50%;
+        background: conic-gradient(var(--accent) calc(var(--p, 0) * 1%), transparent 0);
+        -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+        mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+      }
 
       .list { display: flex; flex-direction: column; gap: 1px; min-height: 6px; }
 
@@ -472,8 +531,10 @@
         background: currentColor;
         opacity: 0.55;
       }
-      .space-dot.active { color: var(--fg); }
-      .space-dot.active i { opacity: 1; width: 9px; height: 9px; }
+      .space-dot.active { color: var(--fg); background: var(--hover); }
+      .space-dot.active i { opacity: 1; width: 10px; height: 10px; }
+      /* Each space in its own colour. */
+      .space-dot i { background: var(--dot, currentColor); opacity: 0.85; }
 
       #toast {
         position: fixed;
@@ -668,19 +729,17 @@
     </div>
 
     <div id="url" class="no-drag" title="Edit address (⌘L)"></div>
-    <div id="bugrec" class="no-drag"></div>
     <div id="private-note" class="no-drag" hidden>Nothing here is saved: no history, cookies or cache. End it to close everything.</div>
-    <div id="recording" class="no-drag"></div>
-    <div id="agent" class="no-drag"></div>
     <div id="prompts"></div>
 
     <div id="scroll">
       <div id="favorites" data-section="favorites"></div>
       <div class="section-title" id="space-title"></div>
+      <div class="sec-label" id="pinned-label">Pinned</div>
       <div id="pinned" class="list" data-section="pinned"></div>
-      <div class="divider"></div>
-      <div class="tab new-tab" id="new-tab"><span class="plus">+</span><span class="title">New Tab</span></div>
+      <div class="sec-label" id="today-label"><span>Today</span><button class="sec-action" data-clear-today title="Archive today's tabs">Clear</button></div>
       <div id="today" class="list" data-section="today"></div>
+      <div class="tab new-tab" id="new-tab"><span class="plus">+</span><span class="title">New tab</span><span class="kbd-hint" id="new-tab-key">⌘T</span></div>
       <div class="drag" style="min-height: 40px"></div>
     </div>
 
@@ -699,7 +758,14 @@
       <div class="lib-foot" id="lib-foot"></div>
     </section>
 
-    <div id="update" class="no-drag"></div>
+    <!-- Every notice in one place, so tabs never jump. -->
+    <div id="tray" class="no-drag" role="status">
+      <div id="recording"></div>
+      <div id="bugrec"></div>
+      <div id="agent"></div>
+      <div id="dlprog"></div>
+      <div id="update"></div>
+    </div>
     <div id="bottom">
       <button class="tool" id="library-btn" title="Downloads and closed tabs" aria-label="Downloads and closed tabs" aria-expanded="false">
         <svg viewBox="0 0 16 16"><path d="M8 2.5v7m0 0L5 6.5m3 3 3-3" /><path d="M2.5 10v1.5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V10" /></svg>
