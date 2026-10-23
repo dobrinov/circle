@@ -6,7 +6,7 @@ Every build produces these packages (`cargo xtask dist`, also run by CI):
 
 | Platform | Runner | Packages |
 | --- | --- | --- |
-| macOS, Apple Silicon | `macos-latest` | `Circle-<v>-macos-aarch64.dmg` |
+| macOS, Apple Silicon | `macos-latest` | `Circle-<v>-macos-arm64.dmg` |
 | macOS, Intel | `macos-latest` (cross) | `Circle-<v>-macos-x86_64.dmg` |
 | Windows, x86_64 | `windows-latest` | `Circle-<v>-windows-x86_64-setup.exe`, `Circle-<v>-windows-x86_64.zip` |
 | Linux, x86_64 | `ubuntu-24.04` | `circle_<v>_amd64.deb`, `circle-<v>-linux-x86_64.tar.gz` |

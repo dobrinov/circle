@@ -65,7 +65,7 @@ jobs:
             for f in artifacts/*; do
               name="$(basename "$f")"
               case "$name" in
-                *macos-aarch64.dmg) p="macOS (Apple Silicon)" ;;
+                *macos-arm64.dmg) p="macOS (Apple Silicon)" ;;
                 *macos-x86_64.dmg) p="macOS (Intel)" ;;
                 *windows-*-setup.exe) p="Windows installer" ;;
                 *windows-*.zip) p="Windows (portable)" ;;

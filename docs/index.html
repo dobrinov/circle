@@ -330,7 +330,7 @@ claude mcp add circle -- /opt/circle/circle-mcp
         <div class="os" data-os="mac">
           <h3><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c-.02-2.35 1.92-3.48 2.01-3.54-1.1-1.6-2.8-1.82-3.4-1.84-1.45-.15-2.82.85-3.56.85-.73 0-1.86-.83-3.06-.81-1.58.02-3.03.92-3.84 2.33-1.64 2.84-.42 7.04 1.18 9.34.78 1.13 1.71 2.4 2.93 2.35 1.18-.05 1.62-.76 3.04-.76 1.42 0 1.82.76 3.06.74 1.26-.02 2.06-1.15 2.83-2.28.89-1.31 1.26-2.58 1.28-2.64-.03-.01-2.45-.94-2.47-3.74ZM14.04 5.7c.65-.79 1.09-1.88.97-2.97-.94.04-2.07.62-2.74 1.41-.6.7-1.13 1.81-.99 2.88 1.05.08 2.12-.53 2.76-1.32Z"/></svg> macOS</h3>
           <div class="files">
-            <a data-match="macos-aarch64.dmg" href="https://github.com/dobrinov/circle/releases/latest">Apple Silicon <span>.dmg</span></a>
+            <a data-match="macos-arm64.dmg" href="https://github.com/dobrinov/circle/releases/latest">Apple Silicon <span>.dmg</span></a>
             <a data-match="macos-x86_64.dmg" href="https://github.com/dobrinov/circle/releases/latest">Intel <span>.dmg</span></a>
           </div>
           <p>macOS 12 or later.</p>
@@ -399,7 +399,7 @@ claude mcp add circle -- /opt/circle/circle-mcp
       }
       document.getElementById("release-line").textContent = `${release.name || release.tag_name}, released ${new Date(release.published_at).toLocaleDateString(undefined, { dateStyle: "long" })}.`;
       // The hero button downloads the best guess for this machine directly.
-      const best = { mac: "macos-aarch64.dmg", windows: "windows-x86_64-setup.exe", linux: "_amd64.deb" }[os];
+      const best = { mac: "macos-arm64.dmg", windows: "windows-x86_64-setup.exe", linux: "_amd64.deb" }[os];
       const asset = best && release.assets.find((a) => a.name.endsWith(best));
       if (asset) hero.href = asset.browser_download_url;
     })
