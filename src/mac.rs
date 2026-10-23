@@ -983,14 +983,14 @@ fn install_menu(mtm: MainThreadMarker, app: &NSApplication) {
             ),
             item(
                 mtm,
-                "New Private Space",
+                "Fap Mode",
                 Some(sel!(circlePrivateSpace:)),
                 "n",
                 cmd | NSEventModifierFlags::Shift,
             ),
             item(
                 mtm,
-                "End Private Session",
+                "End Fap Mode",
                 Some(sel!(circleEndPrivate:)),
                 ".",
                 cmd | NSEventModifierFlags::Shift,

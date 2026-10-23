@@ -11,6 +11,7 @@ pub mod model;
 pub mod recorder;
 pub mod remote;
 pub mod scheme;
+pub mod updater;
 pub mod views;
 
 #[cfg(target_os = "macos")]
@@ -84,6 +85,8 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8) -> i32 {
 
     run_message_loop();
     shutdown();
+    // A downloaded update installs once Circle has quit.
+    updater::install_after_quit(&profile.join("updates"));
     0
 }
 

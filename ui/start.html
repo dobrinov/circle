@@ -144,6 +144,11 @@
       .hints { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 26px; margin-top: 30px; color: var(--soft); font-size: 13px; }
       .hints span { display: inline-flex; align-items: center; gap: 8px; }
       .hints kbd { min-width: 24px; height: 24px; padding: 0 6px; border-radius: 6px; font-size: 12px; }
+      .monkey { display: none; font-size: 72px; line-height: 1; margin: 0 auto 18px; filter: drop-shadow(0 10px 30px hsl(268 80% 40% / 0.5)); }
+      body.private .monkey { display: block; }
+      /* Just the colour fields in normal mode: no logo, no ring. */
+      .logo, .halo { display: none; }
+      body.private .halo { display: block; }
       .private-note { display: none; margin-top: 26px; color: var(--soft); font-size: 13px; }
       body.private .private-note { display: block; }
     </style>
@@ -159,6 +164,7 @@
 
     <main>
       <div class="logo" aria-hidden="true"></div>
+      <div class="monkey" aria-hidden="true">🙈</div>
       <h1 id="greeting">Hello</h1>
       <p class="lead" id="lead">Where to next?</p>
       <button class="spotlight" id="spotlight">
@@ -176,12 +182,52 @@
         const $ = (id) => document.getElementById(id);
         let mac = navigator.platform.startsWith("Mac");
 
-        function greet(isPrivate) {
+        const GREETINGS = {
+          night: ["Still up?", "Hello, night owl", "Burning the midnight oil", "The quiet hours"],
+          morning: ["Good morning", "Rise and shine", "Morning, sunshine", "Hello, early bird", "A fresh start"],
+          afternoon: ["Good afternoon", "Hey there", "Afternoon!", "Hello again", "Keep it rolling"],
+          evening: ["Good evening", "Evening!", "Winding down?", "Hello, evening", "Golden hour"],
+        };
+        const MOTIVATION = [
+          "Small steps, every day.",
+          "Stay curious.",
+          "One tab at a time.",
+          "Done is better than perfect.",
+          "Focus on what matters.",
+          "Less noise, more signal.",
+          "Make it simple, then make it great.",
+          "Go make something you're proud of.",
+          "Today is a good day to learn something.",
+          "You've got this.",
+          "Curiosity is a superpower.",
+          "Start where you are.",
+          "Progress, not perfection.",
+          "Ship it.",
+          "Deep work beats busy work.",
+          "Ask better questions.",
+        ];
+        const pick = (list) => list[Math.floor(Math.random() * list.length)];
+        let picked = null;
+
+        // A new greeting and line each time the splash appears, not on
+        // every state update.
+        function choose() {
           const h = new Date().getHours();
-          const part = h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
-          $("greeting").textContent = isPrivate ? "Private browsing" : part;
-          $("lead").textContent = isPrivate ? "Tabs here vanish when you end the session." : "Where to next?";
+          const part = h < 5 ? "night" : h < 12 ? "morning" : h < 18 ? "afternoon" : h < 23 ? "evening" : "night";
+          picked = { greeting: pick(GREETINGS[part]), lead: pick(MOTIVATION) };
         }
+
+        function greet(isPrivate) {
+          if (!picked) choose();
+          $("greeting").textContent = isPrivate ? "Fap mode" : picked.greeting;
+          $("lead").textContent = isPrivate ? "Nobody's watching. Nothing is saved." : picked.lead;
+        }
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") {
+            choose();
+            greet(document.body.classList.contains("private"));
+          }
+        });
 
         let isPrivate = false;
 
@@ -193,8 +239,8 @@
             hint([mod, "T"], "New tab"),
             hint([mod, "S"], "Show or hide the sidebar"),
             isPrivate
-              ? hint(mac ? ["⇧", mod, "."] : [mod, "Shift", "."], "End private session")
-              : hint(mac ? ["⇧", mod, "N"] : [mod, "Shift", "N"], "Private space"),
+              ? hint(mac ? ["⇧", mod, "."] : [mod, "Shift", "."], "End fap mode instantly")
+              : hint(mac ? ["⇧", mod, "N"] : [mod, "Shift", "N"], "Fap mode"),
           ].join("");
         }
 

@@ -27,7 +27,43 @@ pub fn bundle(options: &Options) -> Result<PathBuf> {
         root().join("packaging/linux/circle.desktop"),
         app.join("circle.desktop"),
     )?;
+    strip_binaries(&app)?;
     Ok(app)
+}
+
+/// Strips symbols from every ELF file in the bundle. CEF's `libcef.so` ships
+/// with its symbols, which roughly double the download.
+fn strip_binaries(dir: &Path) -> Result<()> {
+    if Command::new("strip").arg("--version").output().is_err() {
+        eprintln!("note: strip not found, leaving binaries unstripped");
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            strip_binaries(&path)?;
+            continue;
+        }
+        let mut magic = [0u8; 4];
+        let is_elf = fs::File::open(&path)
+            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic))
+            .is_ok()
+            && magic == *b"\x7fELF";
+        if is_elf {
+            let before = fs::metadata(&path)?.len();
+            run(Command::new("strip").arg("--strip-unneeded").arg(&path))?;
+            let after = fs::metadata(&path)?.len();
+            if before > 10_000_000 {
+                println!(
+                    "stripped {}: {} MB -> {} MB",
+                    path.file_name().unwrap_or_default().to_string_lossy(),
+                    before / 1_000_000,
+                    after / 1_000_000
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn deb_arch(arch: &str) -> &str {

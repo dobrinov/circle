@@ -94,3 +94,16 @@ encode them with:
 ```sh
 cargo xtask gif <frames-dir> docs/assets/<name>.gif --width 1000 --bg F6F3FB
 ```
+
+The page shows each demo as a 1280×800 WebM (VP9) video, with that GIF as the
+fallback for browsers without VP9. The videos are made from the same frames
+by replaying them into a canvas in Circle and recording it with MediaRecorder,
+so no other tools are needed.
+
+## Updates
+
+Installed copies check `releases/latest` every 6 hours (and from
+Settings › Updates), download their platform's file, verify it against
+`SHA256SUMS.txt` and install it on quit. That means every release must keep
+the file names in the table above and include `SHA256SUMS.txt`, which the
+Release workflow does. Pre-releases and the nightly are never offered.

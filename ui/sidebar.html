@@ -510,8 +510,8 @@
         color-scheme: dark;
       }
       body.private .dev { color: hsl(45 85% 70%); background: hsl(0 0% 100% / 0.1); }
-      .private-icon { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
-      .space-dot .private-icon { width: 14px; height: 14px; }
+      .private-emoji { font-size: 15px; line-height: 1; flex: none; }
+      .space-dot .private-emoji { font-size: 14px; }
       .end-private { padding: 3px 10px; border-radius: 6px; background: var(--hover); font-weight: 600; font-size: 12px; }
       .end-private:hover { background: hsl(358 70% 50%); color: white; }
       #private-note {
@@ -524,6 +524,25 @@
         line-height: 1.4;
       }
       #private-note[hidden] { display: none; }
+
+      /* A new version: downloading, ready to install, or to download. */
+      #update:not(:empty) {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+        padding: 8px 8px 8px 12px;
+        border-radius: var(--radius);
+        background: var(--active);
+        color: var(--active-fg);
+        box-shadow: var(--shadow);
+        font-size: 12px;
+      }
+      #update .grow { flex: 1; min-width: 0; }
+      #update b { font-weight: 600; }
+      #update .bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 5px; overflow: hidden; }
+      #update .bar i { display: block; height: 100%; background: var(--accent); }
+      #update button { padding: 4px 10px; border-radius: 6px; background: var(--accent); color: white; font-weight: 600; flex: none; }
 
       /* The copy of the sidebar that peeks out over the page. */
       body.peek { box-shadow: inset -1px 0 0 var(--line); }
@@ -650,7 +669,7 @@
 
     <div id="url" class="no-drag" title="Edit address (⌘L)"></div>
     <div id="bugrec" class="no-drag"></div>
-    <div id="private-note" class="no-drag" hidden>Nothing here is saved: no history, cookies or cache. End the session to close it all.</div>
+    <div id="private-note" class="no-drag" hidden>Nothing here is saved: no history, cookies or cache. End it to close everything.</div>
     <div id="recording" class="no-drag"></div>
     <div id="agent" class="no-drag"></div>
     <div id="prompts"></div>
@@ -680,6 +699,7 @@
       <div class="lib-foot" id="lib-foot"></div>
     </section>
 
+    <div id="update" class="no-drag"></div>
     <div id="bottom">
       <button class="tool" id="library-btn" title="Downloads and closed tabs" aria-label="Downloads and closed tabs" aria-expanded="false">
         <svg viewBox="0 0 16 16"><path d="M8 2.5v7m0 0L5 6.5m3 3 3-3" /><path d="M2.5 10v1.5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V10" /></svg>

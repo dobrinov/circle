@@ -54,9 +54,6 @@
     </div>`;
   }
 
-  // An eye with a line through it: the private space.
-  const PRIVATE_ICON = '<svg class="private-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4z"/><circle cx="8" cy="8" r="1.8"/><path d="M3 13 13 3"/></svg>';
-
   // The format chosen in the recording controls.
   let recordFormat = "video";
 
@@ -191,8 +188,8 @@
     // Space
     document.body.classList.toggle("private", !!current.private);
     $("space-title").innerHTML = current.private
-      ? `${PRIVATE_ICON}<span class="grow">Private</span>
-         <button class="end-private" data-end-private title="Close all private tabs and forget them (⇧⌘.)">End</button>`
+      ? `<span class="private-emoji" aria-hidden="true">🙈</span><span class="grow">Fap mode</span>
+         <button class="end-private" data-end-private title="Close every tab here and forget them (⇧⌘.)">End</button>`
       : `${current.icon ? `<span>${circle.esc(current.icon)}</span>` : ""}
       <span class="grow ellipsis" id="space-name" title="Double-click to rename">${circle.esc(current.name)}</span>
       <button class="muted-btn" data-space-menu="${current.id}">•••</button>`;
@@ -206,11 +203,22 @@
 
     renderLibrary();
 
+    // A new version of Circle.
+    const update = state.update?.status;
+    $("update").innerHTML =
+      update?.status === "ready"
+        ? `<span class="grow"><b>Circle ${circle.esc(update.version)}</b> is ready</span><button data-update-restart title="Restart Circle to finish updating">Restart</button>`
+        : update?.status === "downloading"
+          ? `<span class="grow">Updating to ${circle.esc(update.version)}… ${update.percent}%<div class="bar"><i style="width:${update.percent}%"></i></div></span>`
+          : update?.status === "available"
+            ? `<span class="grow"><b>Circle ${circle.esc(update.version)}</b> is available</span><button data-update-page="${circle.esc(update.url)}">Download</button>`
+            : "";
+
     // Spaces
     $("spaces").innerHTML = state.spaces
       .map(
-        (s, i) => `<button class="space-dot ${i === state.active_space ? "active" : ""} ${s.private ? "private-dot" : ""}" data-space="${s.id}" title="${s.private ? "Private" : `${circle.esc(s.name)} (⌃${i + 1})`}">${
-          s.private ? PRIVATE_ICON : s.icon ? circle.esc(s.icon) : "<i></i>"
+        (s, i) => `<button class="space-dot ${i === state.active_space ? "active" : ""} ${s.private ? "private-dot" : ""}" data-space="${s.id}" title="${s.private ? "Fap mode" : `${circle.esc(s.name)} (⌃${i + 1})`}">${
+          s.private ? '<span class="private-emoji" aria-hidden="true">🙈</span>' : s.icon ? circle.esc(s.icon) : "<i></i>"
         }</button>`,
       )
       .join("");
@@ -250,6 +258,9 @@
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-agent-stop]")) return circle.action("toggle_agent_access");
     if (event.target.closest("[data-end-private]")) return circle.action("end_private");
+    if (event.target.closest("[data-update-restart]")) return circle.action("restart_to_update");
+    const updatePage = event.target.closest("[data-update-page]");
+    if (updatePage) return circle.send({ cmd: "navigate", input: updatePage.dataset.updatePage, new_tab: true });
     if (event.target.closest("[data-record-stop]")) return circle.action("stop_recording");
     if (event.target.closest("[data-record-cancel]")) return circle.action("cancel_recording");
     if (event.target.closest("[data-record-start]")) return circle.action({ start_recording: recordFormat });

@@ -9,8 +9,15 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ### Added
 
-- A splash screen when a space has no open tab: a greeting, a ⌘K hint and
-  generated artwork in the space's colours (private and dark variants).
+- Automatic updates: new versions download in the background, are verified
+  against the release checksums and install on quit or with *Restart*.
+- A splash screen when a space has no open tab: a varied greeting and a
+  motivational line, a ⌘K hint and artwork in the space's colours.
+
+### Changed
+
+- Private browsing is now called fap mode 🙈.
+- Linux packages are stripped of debug symbols, so they are much smaller.
 
 ## [0.1.0] - 2026-10-23
 

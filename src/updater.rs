@@ -1,0 +1,494 @@
+//! Updates: finds newer releases on GitHub, downloads the one for this
+//! platform in the background, verifies it against the release's
+//! `SHA256SUMS.txt`, and installs it when Circle quits (or restarts).
+//!
+//! Installing swaps the app for the new one from a small script that waits
+//! for Circle to exit: on macOS it copies the app out of the `.dmg`, on
+//! Windows it runs the installer silently, and on Linux it unpacks the
+//! `.tar.gz` over a writable install (a `.deb` install can only be told
+//! that an update exists).
+//!
+//! `CIRCLE_UPDATE_FEED` points the check at another URL (a JSON document
+//! shaped like GitHub's "latest release"), for testing.
+
+use crate::controller::{self, Cmd};
+use crate::remote::run_on_ui;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::{
+    fs::{self, File},
+    io::Read,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
+
+const CURRENT: &str = env!("CARGO_PKG_VERSION");
+
+/// One check or download at a time.
+static BUSY: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum Status {
+    /// Nothing newer (or not checked yet).
+    UpToDate {
+        checked: u64,
+    },
+    /// A newer version that this install can't update to by itself.
+    Available {
+        version: String,
+        url: String,
+    },
+    Downloading {
+        version: String,
+        percent: u8,
+    },
+    /// Downloaded and verified; installs on quit or restart.
+    Ready {
+        version: String,
+    },
+    Failed {
+        error: String,
+    },
+}
+
+/// What a check found and where it came from.
+pub struct Update {
+    pub version: String,
+    pub page: String,
+    pub file: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct Release {
+    tag_name: String,
+    html_url: String,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
+    assets: Vec<Asset>,
+}
+
+#[derive(Deserialize)]
+struct Asset {
+    name: String,
+    browser_download_url: String,
+    #[serde(default)]
+    size: u64,
+}
+
+fn feed_url() -> String {
+    std::env::var("CIRCLE_UPDATE_FEED").unwrap_or_else(|_| {
+        let repo = env!("CARGO_PKG_REPOSITORY").trim_start_matches("https://github.com/");
+        format!("https://api.github.com/repos/{repo}/releases/latest")
+    })
+}
+
+/// Checks for a newer release and, if this install can update itself and
+/// `download` is set, fetches it. Reports to the controller as it goes.
+pub fn check(dir: PathBuf, download: bool) {
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let result = check_and_fetch(&dir, download);
+        BUSY.store(false, Ordering::SeqCst);
+        let status = match result {
+            Ok(status) => status,
+            Err(error) => Status::Failed { error },
+        };
+        report(status);
+    });
+}
+
+fn report(status: Status) {
+    run_on_ui(move || controller::dispatch(Cmd::UpdateStatus(status)));
+}
+
+/// The system's `curl` (macOS, Linux and Windows 10+ ship it), which
+/// follows redirects and honours proxy settings.
+fn curl() -> Command {
+    let mut cmd = Command::new(if cfg!(windows) { "curl.exe" } else { "curl" });
+    cmd.args([
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--location",
+        "--connect-timeout",
+        "15",
+    ])
+    .arg("--user-agent")
+    .arg(format!("Circle/{CURRENT}"));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // no console window
+    }
+    cmd
+}
+
+fn get_text(url: &str) -> Result<String, String> {
+    let output = curl()
+        .args(["--max-time", "30"])
+        .args(["--header", "Accept: application/vnd.github+json"])
+        .arg(url)
+        .output()
+        .map_err(|e| format!("couldn't run curl: {e}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    String::from_utf8(output.stdout).map_err(|e| e.to_string())
+}
+
+fn check_and_fetch(dir: &Path, download: bool) -> Result<Status, String> {
+    let text = get_text(&feed_url()).map_err(|e| format!("couldn't check for updates: {e}"))?;
+    let release: Release =
+        serde_json::from_str(&text).map_err(|e| format!("unexpected update feed: {e}"))?;
+    let version = release.tag_name.trim_start_matches('v').to_owned();
+    if release.draft || release.prerelease || !is_newer(&version, CURRENT) {
+        return Ok(Status::UpToDate {
+            checked: crate::model::now(),
+        });
+    }
+    let asset = release
+        .assets
+        .iter()
+        .find(|a| a.name.ends_with(asset_suffix()));
+    let (Some(asset), true) = (asset, can_self_update()) else {
+        return Ok(Status::Available {
+            version,
+            url: release.html_url,
+        });
+    };
+    if !download {
+        return Ok(Status::Available {
+            version,
+            url: release.html_url,
+        });
+    }
+
+    let target = dir.join(&asset.name);
+    if !(target.exists() && verify(&release, asset, &target).is_ok()) {
+        fetch(asset, &target, &version)?;
+        if let Err(err) = verify(&release, asset, &target) {
+            let _ = fs::remove_file(&target);
+            return Err(err);
+        }
+    }
+    fs::write(
+        dir.join("pending.json"),
+        serde_json::json!({ "version": version, "file": target, "page": release.html_url })
+            .to_string(),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(Status::Ready { version })
+}
+
+/// The update downloaded earlier and waiting to be installed, if any.
+pub fn pending(dir: &Path) -> Option<Update> {
+    let text = fs::read_to_string(dir.join("pending.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let version = value["version"].as_str()?.to_owned();
+    let file = PathBuf::from(value["file"].as_str()?);
+    // Already installed (or older): forget it.
+    if !is_newer(&version, CURRENT) || !file.exists() {
+        let _ = fs::remove_file(dir.join("pending.json"));
+        return None;
+    }
+    Some(Update {
+        version,
+        page: value["page"].as_str().unwrap_or_default().to_owned(),
+        file,
+    })
+}
+
+fn fetch(asset: &Asset, target: &Path, version: &str) -> Result<(), String> {
+    let partial = target.with_extension("part");
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut child = curl()
+        .arg("--output")
+        .arg(&partial)
+        .arg(&asset.browser_download_url)
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("couldn't run curl: {e}"))?;
+    // Progress is how much of the file has arrived so far.
+    let mut last_percent = 255u8;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            break status;
+        }
+        let done = fs::metadata(&partial).map_or(0, |m| m.len());
+        if let Some(percent) = (done * 100)
+            .checked_div(asset.size)
+            .map(|p| p.min(100) as u8)
+            && percent != last_percent
+        {
+            last_percent = percent;
+            report(Status::Downloading {
+                version: version.to_owned(),
+                percent,
+            });
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    if !status.success() {
+        let mut err = String::new();
+        if let Some(mut stderr) = child.stderr.take() {
+            let _ = stderr.read_to_string(&mut err);
+        }
+        let _ = fs::remove_file(&partial);
+        return Err(format!("couldn't download the update: {}", err.trim()));
+    }
+    fs::rename(&partial, target).map_err(|e| e.to_string())
+}
+
+/// Checks a download against the release's `SHA256SUMS.txt`.
+fn verify(release: &Release, asset: &Asset, file: &Path) -> Result<(), String> {
+    let sums = release
+        .assets
+        .iter()
+        .find(|a| a.name == "SHA256SUMS.txt")
+        .ok_or("the release has no checksums")?;
+    let text = get_text(&sums.browser_download_url)
+        .map_err(|e| format!("couldn't fetch checksums: {e}"))?;
+    let expected = text
+        .lines()
+        .find_map(|line| {
+            let (hash, name) = line.split_once(char::is_whitespace)?;
+            (name.trim().trim_start_matches('*') == asset.name).then(|| hash.to_lowercase())
+        })
+        .ok_or("the update isn't in the checksums")?;
+    let mut hasher = Sha256::new();
+    let mut f = File::open(file).map_err(|e| e.to_string())?;
+    std::io::copy(&mut f, &mut hasher).map_err(|e| e.to_string())?;
+    let actual = format!("{:x}", hasher.finalize());
+    if actual == expected {
+        Ok(())
+    } else {
+        Err("the downloaded update didn't match its checksum".to_owned())
+    }
+}
+
+/// `a` is a newer version than `b` (MAJOR.MINOR.PATCH; a pre-release is
+/// older than its release).
+pub fn is_newer(a: &str, b: &str) -> bool {
+    fn parse(v: &str) -> (Vec<u64>, bool) {
+        let (core, pre) = v.split_once('-').map_or((v, false), |(c, _)| (c, true));
+        (
+            core.split('.').map(|p| p.parse().unwrap_or(0)).collect(),
+            pre,
+        )
+    }
+    let ((a, a_pre), (b, b_pre)) = (parse(a), parse(b));
+    match a.cmp(&b) {
+        std::cmp::Ordering::Equal => !a_pre && b_pre,
+        other => other == std::cmp::Ordering::Greater,
+    }
+}
+
+/// The release file for this platform.
+fn asset_suffix() -> &'static str {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => "-macos-arm64.dmg",
+        ("macos", _) => "-macos-x86_64.dmg",
+        ("windows", _) => "-windows-x86_64-setup.exe",
+        ("linux", "aarch64") => "-linux-aarch64.tar.gz",
+        ("linux", _) => "-linux-x86_64.tar.gz",
+        _ => "\u{0}",
+    }
+}
+
+/// Where Circle is installed: the `.app` on macOS, else the executable's
+/// folder.
+fn install_location() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    if cfg!(target_os = "macos") {
+        // Circle.app/Contents/MacOS/Circle
+        exe.ancestors()
+            .nth(3)
+            .map(Path::to_path_buf)
+            .filter(|p| p.extension().is_some_and(|e| e == "app"))
+    } else {
+        exe.parent().map(Path::to_path_buf)
+    }
+}
+
+/// Whether this install can replace itself. A development build can't,
+/// and neither can a Linux package install (`/opt`, owned by root).
+fn can_self_update() -> bool {
+    let Some(location) = install_location() else {
+        return false;
+    };
+    if location.components().any(|c| c.as_os_str() == "target") {
+        return false;
+    }
+    match std::env::consts::OS {
+        // The installer takes care of permissions.
+        "windows" => true,
+        // The .app is replaced, so its folder must be writable.
+        "macos" => location.parent().is_some_and(probe_writable),
+        _ => probe_writable(&location),
+    }
+}
+
+fn probe_writable(dir: &Path) -> bool {
+    let probe = dir.join(".circle-update-probe");
+    let ok = File::create(&probe).is_ok();
+    let _ = fs::remove_file(&probe);
+    ok
+}
+
+/// Set by "Restart to update": relaunch after installing.
+static RELAUNCH: AtomicBool = AtomicBool::new(false);
+
+pub fn relaunch_after_update() {
+    RELAUNCH.store(true, Ordering::SeqCst);
+}
+
+/// Called as Circle exits: installs a downloaded update, if any.
+pub fn install_after_quit(dir: &Path) {
+    if let Some(update) = pending(dir)
+        && can_self_update()
+        && let Err(err) = install_on_exit(&update, RELAUNCH.load(Ordering::SeqCst))
+    {
+        eprintln!("circle: couldn't install the update: {err}");
+    }
+}
+
+/// Starts installing `update` once Circle exits, relaunching it afterwards
+/// if `relaunch`. Circle must quit right after this returns.
+pub fn install_on_exit(update: &Update, relaunch: bool) -> Result<(), String> {
+    let location = install_location().ok_or("can't tell where Circle is installed")?;
+    let pid = std::process::id();
+    let dir = update.file.parent().unwrap_or(Path::new("."));
+    let quote = |p: &Path| shell_quote(&p.to_string_lossy());
+    let pending = dir.join("pending.json");
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let body = if cfg!(target_os = "macos") {
+            let mount = dir.join("mount");
+            format!(
+                "mkdir -p {m}\n\
+                 hdiutil attach -nobrowse -readonly -mountpoint {m} {dmg} >/dev/null || exit 1\n\
+                 new=$(ls -d {m}/*.app | head -1)\n\
+                 rm -rf {app}.old && mv {app} {app}.old && ditto \"$new\" {app} && rm -rf {app}.old || {{ rm -rf {app}; mv {app}.old {app}; }}\n\
+                 xattr -dr com.apple.quarantine {app} 2>/dev/null\n\
+                 hdiutil detach {m} >/dev/null\n\
+                 {relaunch}",
+                m = quote(&mount),
+                dmg = quote(&update.file),
+                app = quote(&location),
+                relaunch = if relaunch {
+                    format!("open -n {}", quote(&location))
+                } else {
+                    String::new()
+                },
+            )
+        } else {
+            let unpacked = dir.join("unpacked");
+            format!(
+                "rm -rf {u} && mkdir -p {u} && tar -xzf {tar} -C {u} || exit 1\n\
+                 cp -a {u}/circle/. {app}/ && rm -rf {u}\n\
+                 {relaunch}",
+                u = quote(&unpacked),
+                tar = quote(&update.file),
+                app = quote(&location),
+                relaunch = if relaunch {
+                    format!(
+                        "nohup {} >/dev/null 2>&1 &",
+                        quote(&location.join("circle"))
+                    )
+                } else {
+                    String::new()
+                },
+            )
+        };
+        let script = format!(
+            "#!/bin/sh\n# Installs a Circle update once Circle has quit.\n\
+             while kill -0 {pid} 2>/dev/null; do sleep 0.2; done\n\
+             {body}\n\
+             rm -f {pending} {file}\n\
+             rm -rf \"$(dirname \"$0\")/mount\" \"$0\"\n",
+            pending = quote(&pending),
+            file = quote(&update.file),
+        );
+        let path = dir.join("install.sh");
+        fs::write(&path, script).map_err(|e| e.to_string())?;
+        Command::new("/bin/sh")
+            .arg(&path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("couldn't start the installer: {e}"))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let exe = location.join("circle.exe");
+        let script = format!(
+            "@echo off\r\n\
+             :wait\r\n\
+             tasklist /FI \"PID eq {pid}\" | find \"{pid}\" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n\
+             \"{setup}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART\r\n\
+             {relaunch}\r\n\
+             del \"{pending}\" \"{setup}\"\r\n",
+            setup = update.file.display(),
+            pending = pending.display(),
+            relaunch = if relaunch {
+                format!("start \"\" \"{}\"", exe.display())
+            } else {
+                String::new()
+            },
+        );
+        let path = dir.join("install.cmd");
+        fs::write(&path, script).map_err(|e| e.to_string())?;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        Command::new("cmd")
+            .arg("/C")
+            .arg(&path)
+            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("couldn't start the installer: {e}"))?;
+        let _ = quote;
+    }
+    Ok(())
+}
+
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compares_versions() {
+        assert!(is_newer("0.1.1", "0.1.0"));
+        assert!(is_newer("0.2.0", "0.1.9"));
+        assert!(is_newer("1.0.0", "0.9.9"));
+        assert!(is_newer("0.2.0", "0.2.0-beta.1"));
+        assert!(!is_newer("0.2.0-beta.1", "0.2.0"));
+        assert!(!is_newer("0.1.0", "0.1.0"));
+        assert!(!is_newer("0.0.9", "0.1.0"));
+    }
+
+    #[test]
+    fn quotes_for_the_shell() {
+        assert_eq!(
+            shell_quote("/Applications/Circle.app"),
+            "'/Applications/Circle.app'"
+        );
+        assert_eq!(shell_quote("it's"), r"'it'\''s'");
+    }
+}

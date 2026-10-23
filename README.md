@@ -45,12 +45,17 @@ Written in Rust on top of Chromium via the
   a few questions, reproduce the problem while Circle logs navigations, actions,
   page errors, failed loads and crashes, then get editable GitHub-issue text
   (addresses trimmed to sites unless you opt in)
-- **Private space** (`⇧⌘N` / `Ctrl+Shift+N`): a dark space whose tabs use a
+- **Fap mode** 🙈 (`⇧⌘N` / `Ctrl+Shift+N`): private browsing in a dark space whose tabs use a
   memory-only session (no cookies, cache or storage on disk) and leave nothing
   behind: no history, no recently closed, not saved, no remembered permissions,
   invisible to AI agents and to other spaces' Spotlight. On macOS the window is
   hidden from screen sharing and screenshots while it shows. `⇧⌘.` ends it at
   once, closing every private tab
+- **Automatic updates**: Circle checks GitHub Releases every few hours,
+  downloads the new version in the background, verifies it against the
+  release's `SHA256SUMS.txt` and installs it when you quit (or press
+  *Restart* in the sidebar). Settings › Updates turns it off. A `.deb`
+  install in `/opt` is told about new versions instead
 - **Light and dark themes**, or follow the system; websites get the same
   `prefers-color-scheme`
 - **Settings** (`⌘,` / `Ctrl+,`, Circle › Settings…, or the command bar):

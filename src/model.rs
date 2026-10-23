@@ -132,6 +132,9 @@ pub struct Session {
     /// Whether local AI agents may control the browser (off by default).
     #[serde(default)]
     pub agent_access: bool,
+    /// Download updates in the background and install them on quit.
+    #[serde(default = "yes")]
+    pub auto_update: bool,
     /// Where developer tools open.
     #[serde(default)]
     pub devtools_dock: DevToolsDock,
@@ -204,6 +207,7 @@ impl Default for Session {
             search_url: default_search(),
             grants: BTreeMap::new(),
             agent_access: false,
+            auto_update: true,
             devtools_dock: DevToolsDock::default(),
             devtools_width: default_devtools_width(),
             devtools_height: default_devtools_height(),

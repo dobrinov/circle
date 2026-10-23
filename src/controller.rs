@@ -26,6 +26,7 @@ const SIDEBAR_URL: &str = "circle://ui/sidebar.html";
 const PALETTE_URL: &str = "circle://ui/palette.html";
 const PEEK_URL: &str = "circle://ui/sidebar.html?peek";
 const RECORDER_URL: &str = "circle://ui/recorder.html";
+const UPDATE_EVERY_MS: i64 = 6 * 60 * 60 * 1000;
 /// The splash shown when the space has no open tab.
 const START_PAGE_URL: &str = "circle://ui/start.html";
 /// How many downloads the sidebar's list keeps.
@@ -97,6 +98,9 @@ pub enum Action {
     CancelRecording,
     StopRecording,
     ReportBug,
+    CheckForUpdates,
+    /// Quits and installs the downloaded update, then relaunches.
+    RestartToUpdate,
     /// Opens (or goes to) the private space.
     PrivateSpace,
     /// Closes the private space at once, with everything in it.
@@ -205,6 +209,8 @@ pub enum UiCmd {
         devtools_dock: Option<DevToolsDock>,
         #[serde(default)]
         agent_access: Option<bool>,
+        #[serde(default)]
+        auto_update: Option<bool>,
         /// A remembered site permission to forget.
         #[serde(default)]
         forget_grant: Option<String>,
@@ -387,6 +393,8 @@ pub enum Cmd {
     RecorderStop,
     /// The recording stopped and its file is being written.
     RecordingSaving,
+    UpdateStatus(crate::updater::Status),
+    CheckUpdates,
     /// Screenshots of the visible pages (rect within the content area, JPEG
     /// as base64) for the command bar's blurred backdrop.
     PaletteBackdrop(u64, Vec<(Rect, String)>),
@@ -496,6 +504,7 @@ enum Timer {
     AgentIdle,
     /// Shows the command bar even if its backdrop isn't ready yet.
     ShowPalette(u64),
+    UpdateCheck,
 }
 
 fn schedule(timer: Timer, delay_ms: i64) {
@@ -530,6 +539,7 @@ wrap_task! {
                 Timer::Animate => Cmd::AnimateSidebar,
                 Timer::AgentIdle => Cmd::AgentIdle,
                 Timer::ShowPalette(generation) => Cmd::ShowPalette(generation),
+                Timer::UpdateCheck => Cmd::CheckUpdates,
             });
         }
     }
@@ -538,8 +548,14 @@ wrap_task! {
 /// Creates the controller and the main window. Called once CEF is ready.
 pub fn start(profile_dir: &Path, initial_urls: Vec<String>) {
     crate::history::load(profile_dir);
-    let controller = Controller::new(profile_dir);
+    let mut controller = Controller::new(profile_dir);
     controller.apply_appearance();
+    // An update downloaded last time, not installed yet.
+    if let Some(update) = crate::updater::pending(&profile_dir.join("updates")) {
+        controller.update_status = Some(crate::updater::Status::Ready {
+            version: update.version,
+        });
+    }
     crate::remote::start(profile_dir);
     crate::remote::set_agent_access(controller.session.agent_access);
     let sidebar = controller.sidebar.clone();
@@ -552,6 +568,8 @@ pub fn start(profile_dir: &Path, initial_urls: Vec<String>) {
     }
     views::create_main_window(sidebar, content, palette, peek);
     schedule(Timer::Tick, TICK_MS);
+    // The first update check waits until startup has settled.
+    schedule(Timer::UpdateCheck, 15_000);
     pump();
 }
 
@@ -643,6 +661,8 @@ pub struct Controller {
     /// What is being recorded and since when (Unix ms).
     recording: Option<(crate::recorder::Format, u64)>,
     recording_saving: bool,
+    update_status: Option<crate::updater::Status>,
+    update_checking: bool,
     /// The memory-only browsing session of the private space, while open.
     private_context: Option<RequestContext>,
     /// The normal space to return to when the private one ends.
@@ -815,6 +835,8 @@ impl Controller {
             pending_recording: None,
             recording: None,
             recording_saving: false,
+            update_status: None,
+            update_checking: false,
             private_context: None,
             last_normal_space: 0,
             record_prompt: None,
@@ -992,6 +1014,18 @@ impl Controller {
                 }
             }
             Cmd::BugLog { kind, text, url } => self.bug_log(kind, &text, url.as_deref()),
+            Cmd::UpdateStatus(status) => {
+                self.update_checking = false;
+                self.update_status = Some(status);
+                self.ui_dirty = true;
+                self.push_settings();
+            }
+            Cmd::CheckUpdates => {
+                if self.session.auto_update {
+                    crate::updater::check(self.updates_dir(), true);
+                }
+                schedule(Timer::UpdateCheck, UPDATE_EVERY_MS);
+            }
             Cmd::RecordingSaving => {
                 self.recording_saving = true;
                 self.ui_dirty = true;
@@ -1224,8 +1258,12 @@ impl Controller {
                 archive_after_hours,
                 devtools_dock,
                 agent_access,
+                auto_update,
                 forget_grant,
             } => {
+                if let Some(on) = auto_update {
+                    self.session.auto_update = on;
+                }
                 if let Some(appearance) = appearance {
                     self.handle_action(Action::Appearance(appearance));
                 }
@@ -1524,6 +1562,18 @@ impl Controller {
             }
             Action::StopRecording => crate::recorder::stop(),
             Action::ReportBug => self.show_page("circle://ui/bugreport.html"),
+            Action::CheckForUpdates => {
+                // Asked for: download even when automatic updates are off.
+                crate::updater::check(self.updates_dir(), true);
+                self.update_status = None;
+                self.update_checking = true;
+                self.ui_dirty = true;
+                self.push_settings();
+            }
+            Action::RestartToUpdate => {
+                crate::updater::relaunch_after_update();
+                self.handle_action(Action::Quit);
+            }
             Action::PrivateSpace => self.open_private_space(),
             Action::EndPrivate => self.end_private_space(),
             Action::Appearance(appearance) => {
@@ -1651,7 +1701,7 @@ impl Controller {
         let index = match self.private_space_index() {
             Some(index) => index,
             None => {
-                let index = self.session.add_space("Private");
+                let index = self.session.add_space("Fap mode");
                 let space = &mut self.session.spaces[index];
                 space.private = true;
                 space.hue = 268;
@@ -1703,7 +1753,7 @@ impl Controller {
             .min(self.session.spaces.len().saturating_sub(1));
         self.session.active_space = back;
         self.switch_space(back);
-        self.toast("Private session ended".to_owned());
+        self.toast("Fap mode ended".to_owned());
         self.changed();
     }
 
@@ -2133,6 +2183,21 @@ impl Controller {
         self.ui_dirty = true;
     }
 
+    fn updates_dir(&self) -> PathBuf {
+        self.session_path
+            .parent()
+            .map(|p| p.join("updates"))
+            .unwrap_or_default()
+    }
+
+    fn update_json(&self) -> Value {
+        json!({
+            "current": env!("CARGO_PKG_VERSION"),
+            "checking": self.update_checking,
+            "status": self.update_status,
+        })
+    }
+
     fn start_recording(&mut self, format: crate::recorder::Format) {
         use crate::recorder::Format;
         let Some(tab) = self
@@ -2224,6 +2289,8 @@ impl Controller {
             "grants": self.session.grants.keys().collect::<Vec<_>>(),
             "profile_dir": self.session_path.parent().map(|p| p.display().to_string()),
             "version": env!("CARGO_PKG_VERSION"),
+            "auto_update": self.session.auto_update,
+            "update": self.update_json(),
         })
     }
 
@@ -2581,10 +2648,9 @@ impl Controller {
                 }
             })
             .unwrap_or_default();
-        // Private page titles stay out of the window list and app switcher.
-        let title = if self.session.space().private {
-            "Private – Circle".to_owned()
-        } else if title.is_empty() {
+        // In fap mode nothing about the page shows in the window list or app
+        // switcher, nor that it's fap mode.
+        let title = if self.session.space().private || title.is_empty() {
             "Circle".to_owned()
         } else {
             format!("{title} – Circle")
@@ -2913,6 +2979,7 @@ impl Controller {
             "prompts": prompts,
             "toast": self.toast.as_ref().map(|(nonce, text)| json!({ "nonce": nonce, "text": text })),
             "devtools_dock": self.session.devtools_dock,
+            "update": self.update_json(),
             "record_prompt": self.record_prompt.map(|format| json!({
                 "format": format,
                 "tab": self.session.active_tab().and_then(|id| self.session.tab(id)).map(|t| t.display_title().to_owned()),

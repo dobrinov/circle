@@ -39,6 +39,8 @@
   $("history").addEventListener("click", () => circle.action("show_history"));
   $("clear").addEventListener("click", () => circle.action("clear_browsing_data"));
   $("report-bug").addEventListener("click", () => circle.action("report_bug"));
+  $("check-updates").addEventListener("click", () => circle.action("check_for_updates"));
+  $("auto-update").addEventListener("click", (e) => update({ auto_update: e.target.getAttribute("aria-checked") !== "true" }));
   $("grants").addEventListener("click", (event) => {
     const button = event.target.closest("[data-forget]");
     if (button) update({ forget_grant: button.dataset.forget });
@@ -59,7 +61,23 @@
     .map(([label, keys]) => `<div class="row"><div class="label">${circle.esc(label)}</div><div class="value"><kbd>${circle.esc(keys)}</kbd></div></div>`)
     .join("");
 
+  function updateText(u) {
+    const st = u?.status;
+    if (u?.checking) return "Checking for updates…";
+    switch (st?.status) {
+      case "up_to_date": return "You're up to date.";
+      case "downloading": return `Downloading ${st.version}… ${st.percent}%`;
+      case "ready": return `Version ${st.version} is ready. It installs when Circle quits or restarts.`;
+      case "available": return `Version ${st.version} is available to download.`;
+      case "failed": return `Couldn't update: ${st.error}`;
+      default: return "Updates are checked every few hours.";
+    }
+  }
+
   circle.render = (s) => {
+    $("version").textContent = s.version;
+    $("update-status").textContent = updateText(s.update);
+    $("auto-update").setAttribute("aria-checked", s.auto_update);
     setSegment("appearance", s.appearance);
     setSegment("dock", s.devtools_dock);
 

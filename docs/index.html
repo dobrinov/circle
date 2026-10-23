@@ -99,7 +99,8 @@ nav .links a:hover { color: var(--ink); }
 .shot { margin: 56px auto 0; max-width: 1000px; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); background: #F6F3FB; position: relative; }
 /* Every demo is recorded at 16:10 and shown at 16:10. */
 .shot, .feature .media { aspect-ratio: 16 / 10; }
-.shot img, .feature .media img { width: 100%; height: 100%; object-fit: cover; }
+.shot img, .feature .media img,
+.shot video, .feature .media video { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ----- features ----- */
 section { padding: 72px 0; }
@@ -187,7 +188,7 @@ footer .brand img { width: 24px; height: 24px; }
     </div>
     <p class="small">Free and open source · macOS, Windows and Linux</p>
     <div class="shot">
-      <img src="assets/sidebar.gif?v=2" width="1000" height="625" alt="Circle's sidebar with GitHub tabs: switching tabs, opening a folder, jumping to the Work space and back, recolouring the space, a localhost tab with a DEV badge, then hiding the sidebar and peeking at it">
+      <video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/sidebar.jpg?v=3" data-gif="assets/sidebar.gif?v=2" aria-label="Circle's sidebar with GitHub tabs: switching tabs, opening a folder, jumping to the Work space and back, recolouring the space, a localhost tab with a DEV badge, then hiding the sidebar and peeking at it"><source src="assets/sidebar.webm?v=3" type='video/webm; codecs="vp9"'></video>
     </div>
   </div>
 </header>
@@ -204,7 +205,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Press <kbd>⌘</kbd> <kbd>K</kbd> and start typing. Jump to an open tab in any space, open a site in a new tab, search the web, or find that page from yesterday in your history.</p>
         </div>
         <div>
-          <div class="media"><img loading="lazy" src="assets/spotlight.gif?v=2" width="1000" height="625" alt="Spotlight over a blurred GitHub page: typing linux shows the torvalds/linux tab as the top hit, then switches to it"></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/spotlight.jpg?v=3" data-gif="assets/spotlight.gif?v=2" aria-label="Spotlight over a blurred GitHub page: typing linux shows the torvalds/linux tab as the top hit, then switches to it"><source src="assets/spotlight.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -214,7 +215,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Read the docs next to the thing you're building. Split with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>=</kbd> or a tab's right-click menu, and stack the pages with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>-</kbd>.</p>
         </div>
         <div>
-          <div class="media"><img loading="lazy" src="assets/split.gif?v=2" width="1000" height="625" alt="GitHub issues and pull requests side by side in split view, then stacked one above the other"></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/split.jpg?v=3" data-gif="assets/split.gif?v=2" aria-label="GitHub issues and pull requests side by side in split view, then stacked one above the other"><source src="assets/split.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -224,7 +225,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Circle follows your system or stays light or dark, and websites that support dark mode switch with it.</p>
         </div>
         <div>
-          <div class="media"><img loading="lazy" src="assets/dark.gif?v=2" width="1000" height="625" alt="Circle and GitHub switching together from light to dark mode and back"></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/dark.jpg?v=3" data-gif="assets/dark.gif?v=2" aria-label="Circle and GitHub switching together from light to dark mode and back"><source src="assets/dark.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
     </div>
@@ -241,7 +242,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Chrome's developer tools, docked to the right, the bottom or in their own window. Drag the edge to resize. <kbd>⌥</kbd> <kbd>⌘</kbd> <kbd>I</kbd> or right-click › Inspect Element.</p>
         </div>
         <div>
-          <div class="media"><img loading="lazy" src="assets/devtools.gif?v=2" width="1000" height="625" alt="Developer tools docked to the right of a GitHub page, then moved to the bottom"></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/devtools.jpg?v=3" data-gif="assets/devtools.gif?v=2" aria-label="Developer tools docked to the right of a GitHub page, then moved to the bottom"><source src="assets/devtools.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -251,7 +252,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Tabs on <code>localhost</code> get a DEV badge and the address bar shows the port, so you never confuse your local build with production. On macOS the page frame picks up soft stripes too.</p>
         </div>
         <div>
-          <div class="media"><img loading="lazy" src="assets/localhost.gif?v=2" width="1000" height="625" alt="Switching from GitHub to a local app on localhost: the frame around the page becomes striped"></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/localhost.jpg?v=3" data-gif="assets/localhost.gif?v=2" aria-label="Switching from GitHub to a local app on localhost: the frame around the page becomes striped"><source src="assets/localhost.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -261,7 +262,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Press <kbd>⌥</kbd> <kbd>⌘</kbd> <kbd>R</kbd>, pick Video or GIF and press Start. Show the bug or the feature, press Stop, and the file lands in your Downloads.</p>
         </div>
         <div>
-          <div class="media"><img loading="lazy" src="assets/recording.gif?v=2" width="1000" height="625" alt="Recording a GitHub page: the recording controls open in the sidebar, GIF is chosen and started, the page scrolls while the timer runs, Stop saves it, and it appears in the downloads panel"></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/recording.jpg?v=3" data-gif="assets/recording.gif?v=2" aria-label="Recording a GitHub page: the recording controls open in the sidebar, GIF is chosen and started, the page scrolls while the timer runs, Stop saves it, and it appears in the downloads panel"><source src="assets/recording.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -381,6 +382,31 @@ claude mcp add circle -- /opt/circle/circle-mcp
   const hero = document.getElementById("hero-download");
   const label = { mac: "Download for macOS", windows: "Download for Windows", linux: "Download for Linux" }[os];
   if (label) hero.querySelector("span").textContent = label;
+
+  // The demos are VP9 videos (sharp at any size); browsers without VP9 get
+  // the GIF. They play while on screen, and not at all for people who
+  // prefer reduced motion (the poster frame shows instead).
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const watcher = new IntersectionObserver((entries) => {
+    for (const { target, isIntersecting } of entries) {
+      if (isIntersecting) target.play().catch(() => {});
+      else target.pause();
+    }
+  }, { rootMargin: "200px" });
+  for (const video of document.querySelectorAll("video.demo")) {
+    if (!video.canPlayType('video/webm; codecs="vp9"')) {
+      const img = document.createElement("img");
+      img.src = video.dataset.gif;
+      img.alt = video.getAttribute("aria-label");
+      img.width = 1000;
+      img.height = 625;
+      img.loading = "lazy";
+      video.replaceWith(img);
+    } else if (!still) {
+      video.preload = "auto";
+      watcher.observe(video);
+    }
+  }
 
   // Download clicks are a Plausible custom event ("Download" goal).
   document.addEventListener("click", (event) => {
