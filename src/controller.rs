@@ -464,6 +464,10 @@ thread_local! {
     static QUEUE: RefCell<VecDeque<Cmd>> = const { RefCell::new(VecDeque::new()) };
     static CLOSING: Cell<bool> = const { Cell::new(false) };
     static WINDOW_GONE: Cell<bool> = const { Cell::new(false) };
+    /// Inside `can_close`, which closing a browser can re-enter.
+    static IN_CAN_CLOSE: Cell<bool> = const { Cell::new(false) };
+    /// `can_close` was re-entered, so the window should try closing again.
+    static CLOSE_AGAIN: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Queues a command and runs the queue if the controller is idle. UI thread only.
@@ -588,6 +592,13 @@ pub fn is_window_closing() -> bool {
 
 /// Asks every browser to close; the window may close once all of them have.
 pub fn can_close() -> c_int {
+    // Closing a browser can ask the window to close again from inside
+    // `try_close_browser`; asking the same browsers twice trips a CHECK in
+    // CEF. Say "not yet" and try again once this call is done.
+    if IN_CAN_CLOSE.replace(true) {
+        CLOSE_AGAIN.set(true);
+        return 0;
+    }
     if !CLOSING.replace(true) {
         CONTROLLER.with(|cell| {
             if let Ok(guard) = cell.try_borrow()
@@ -604,6 +615,10 @@ pub fn can_close() -> c_int {
         {
             ready = false;
         }
+    }
+    IN_CAN_CLOSE.set(false);
+    if CLOSE_AGAIN.replace(false) && !ready {
+        crate::remote::run_on_ui(|| dispatch(Cmd::Action(Action::Quit)));
     }
     ready as c_int
 }

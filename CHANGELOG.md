@@ -7,6 +7,10 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Quitting Circle (⌘Q) could crash on the way out and leave a crash report.
+
 ## [0.1.1] - 2026-10-23
 
 ### Added
