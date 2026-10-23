@@ -47,6 +47,8 @@ jobs:
     env:
       CEF_PATH: ${{ github.workspace }}/../cef
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      # Set when notarization is possible (only checked for being non-empty).
+      NOTARIZE: ${{ secrets.APPLE_APP_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -88,7 +90,7 @@ jobs:
           }
 
       - name: Require signing secrets (macOS releases)
-        if: runner.os == 'macOS' && inputs.require-signing && env.MACOS_CERTIFICATE == ''
+        if: runner.os == 'macOS' && inputs.require-signing && (env.MACOS_CERTIFICATE == '' || env.NOTARIZE == '')
         run: |
           echo "::error::Releases must be signed and notarized: add the MACOS_* and APPLE_* secrets (see RELEASING.md)"
           exit 1
@@ -148,13 +150,18 @@ jobs:
         if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != ''
         run: |
           for dmg in dist/*.dmg; do
-            xcrun stapler validate "$dmg"
-            spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
             mount="$(mktemp -d)"
             hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" >/dev/null
             codesign --verify --deep --strict --verbose=2 "$mount/Circle.app"
-            spctl --assess --type execute --verbose=2 "$mount/Circle.app"
+            # Gatekeeper accepts only notarized builds.
+            if [ -n "$NOTARIZE" ]; then
+              spctl --assess --type execute --verbose=2 "$mount/Circle.app"
+            fi
             hdiutil detach "$mount" >/dev/null
+            if [ -n "$NOTARIZE" ]; then
+              xcrun stapler validate "$dmg"
+              spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+            fi
           done
 
       - uses: actions/upload-artifact@v4
