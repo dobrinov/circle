@@ -7,6 +7,8 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-23
+
 ### Added
 
 - Automatic updates: new versions download in the background, are verified

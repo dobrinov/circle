@@ -240,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "circle"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arboard",
  "cef",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "circle-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs",
  "serde_json",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "gif",
