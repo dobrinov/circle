@@ -26,6 +26,8 @@ pub enum Role {
     Recorder,
     /// The splash shown in the page area when the space has no open tab.
     Start,
+    /// Recording controls floating over the page while the sidebar is hidden.
+    RecBar,
 }
 
 /// Prefix of the console messages the docked DevTools' resize grip sends.
@@ -275,7 +277,12 @@ wrap_life_span_handler! {
             };
             if matches!(
                 self.role,
-                Role::Sidebar | Role::Palette | Role::Peek | Role::Recorder | Role::Start
+                Role::Sidebar
+                    | Role::Palette
+                    | Role::Peek
+                    | Role::Recorder
+                    | Role::Start
+                    | Role::RecBar
             ) {
                 scheme::allow_browser(browser.identifier());
             }

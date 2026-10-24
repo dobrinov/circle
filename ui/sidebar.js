@@ -152,6 +152,10 @@
           <button role="radio" data-record-format="video" class="${recordFormat === "video" ? "on" : ""}" aria-checked="${recordFormat === "video"}">Video</button>
           <button role="radio" data-record-format="gif" class="${recordFormat === "gif" ? "on" : ""}" aria-checked="${recordFormat === "gif"}">GIF</button>
         </div>
+        <div class="rec-marks">
+          <button data-record-mark="clicks" aria-pressed="${!!prompt.clicks}" title="Show the pointer and clicks in the recording">Clicks</button>
+          <button data-record-mark="keys" aria-pressed="${!!prompt.keys}" title="Show the keys you press in the recording">Keys</button>
+        </div>
         <button class="rec-start" data-record-start><span class="dot"></span>Start recording</button>`;
     } else if (!rec || rec.saving) {
       recBox.dataset.shown = "";
@@ -285,6 +289,10 @@
     if (event.target.closest("[data-record-stop]")) return circle.action("stop_recording");
     if (event.target.closest("[data-record-cancel]")) return circle.action("cancel_recording");
     if (event.target.closest("[data-record-start]")) return circle.action({ start_recording: recordFormat });
+    const mark = event.target.closest("[data-record-mark]");
+    if (mark) {
+      return circle.send({ cmd: "settings", [`recording_${mark.dataset.recordMark}`]: mark.getAttribute("aria-pressed") !== "true" });
+    }
     const format = event.target.closest("[data-record-format]");
     if (format) {
       recordFormat = format.dataset.recordFormat;

@@ -135,6 +135,15 @@ pub struct Session {
     /// Download updates in the background and install them on quit.
     #[serde(default = "yes")]
     pub auto_update: bool,
+    /// Recordings show the pointer and clicks.
+    #[serde(default = "yes")]
+    pub recording_clicks: bool,
+    /// Recordings show the keys being pressed.
+    #[serde(default = "yes")]
+    pub recording_keys: bool,
+    /// While the sidebar is hidden, recording controls float over the page.
+    #[serde(default = "yes")]
+    pub recording_float: bool,
     /// The Circle version that last ran with this profile, so the next
     /// version knows to show what's new.
     #[serde(default)]
@@ -217,6 +226,9 @@ impl Default for Session {
             auto_update: true,
             spotlight_blur: true,
             seen_version: None,
+            recording_clicks: true,
+            recording_keys: true,
+            recording_float: true,
             devtools_dock: DevToolsDock::default(),
             devtools_width: default_devtools_width(),
             devtools_height: default_devtools_height(),

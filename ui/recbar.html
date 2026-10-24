@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Circle Recording</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      /* Recording controls floating over the page while the sidebar is
+         hidden. Always dark, so they read on any page. Circle sizes the
+         overlay to the bar (and rounds its corners). */
+      html, body { margin: 0; height: auto; background: hsl(260 18% 13%); color: hsl(0 0% 96%); overflow: hidden; }
+      #bar { display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 8px 0 16px; white-space: nowrap; font-size: 13px; }
+      #bar:empty { display: none; }
+      .dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: hsl(358 80% 56%); }
+      .live .dot { animation: pulse 1.4s ease-in-out infinite; }
+      @keyframes pulse { 50% { opacity: 0.35; } }
+      b { font-weight: 650; }
+      time { font-variant-numeric: tabular-nums; color: hsl(0 0% 100% / 0.6); font-weight: 500; }
+      .sep { width: 1px; height: 22px; background: hsl(0 0% 100% / 0.14); }
+      button { height: 30px; padding: 0 12px; border-radius: 6px; background: hsl(0 0% 100% / 0.1); color: inherit; font-weight: 600; }
+      button:hover { background: hsl(0 0% 100% / 0.18); }
+      .seg { display: flex; padding: 2px; border-radius: 8px; background: hsl(0 0% 100% / 0.08); }
+      .seg button { height: 26px; padding: 0 10px; background: none; color: hsl(0 0% 100% / 0.65); font-size: 12px; }
+      .seg button.on { background: hsl(0 0% 100% / 0.18); color: white; }
+      .chip { height: 26px; padding: 0 10px; font-size: 12px; color: hsl(0 0% 100% / 0.65); background: none; box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.16); }
+      .chip[aria-pressed="true"] { color: white; background: hsl(268 70% 60% / 0.35); box-shadow: none; }
+      .start { background: hsl(358 75% 52%); color: white; display: inline-flex; align-items: center; gap: 7px; }
+      .start:hover { background: hsl(358 75% 47%); }
+      .start .dot { width: 8px; height: 8px; background: white; }
+      .icon { width: 30px; padding: 0; display: grid; place-items: center; background: none; color: hsl(0 0% 100% / 0.6); }
+      .icon svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+      .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid hsl(0 0% 100% / 0.85); border-right-color: transparent; animation: spin 0.8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      #bar.saving { padding-right: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="bar"></div>
+    <script src="common.js"></script>
+    <script>
+      (() => {
+        const bar = document.getElementById("bar");
+        const X = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6M9 3 3 9"/></svg>';
+        let format = "video";
+        let shown = "";
+        let timer = null;
+
+        circle.render = (state) => {
+          const rec = state.recording;
+          const prompt = !rec && state.record_prompt;
+          clearInterval(timer);
+          timer = null;
+          bar.className = "";
+          if (prompt) {
+            if (shown !== "prompt") format = prompt.format;
+            shown = "prompt";
+            const mark = (name, label) =>
+              `<button class="chip" data-mark="${name}" aria-pressed="${!!prompt[name]}" title="Show ${label.toLowerCase()} in the recording">${label}</button>`;
+            bar.innerHTML = `<span class="dot"></span><b>Record this tab</b>
+              <div class="seg" role="radiogroup" aria-label="Format">
+                <button role="radio" data-format="video" class="${format === "video" ? "on" : ""}" aria-checked="${format === "video"}">Video</button>
+                <button role="radio" data-format="gif" class="${format === "gif" ? "on" : ""}" aria-checked="${format === "gif"}">GIF</button>
+              </div>
+              <span class="sep"></span>${mark("clicks", "Clicks")}${mark("keys", "Keys")}<span class="sep"></span>
+              <button class="start" data-start><span class="dot"></span>Start</button>
+              <button class="icon" data-cancel title="Cancel (esc)" aria-label="Cancel">${X}</button>`;
+          } else if (rec && rec.saving) {
+            shown = "saving";
+            bar.className = "saving";
+            bar.innerHTML = `<span class="spinner"></span><b>Saving ${rec.format === "gif" ? "GIF" : "video"}…</b>`;
+          } else if (rec) {
+            shown = "recording";
+            bar.className = "live";
+            bar.innerHTML = `<span class="dot"></span><b>${rec.format === "gif" ? "Recording GIF" : "Recording"}</b> <time></time>
+              <button data-stop title="Stop and save to Downloads">Stop</button>`;
+            const tick = () => {
+              const s = Math.max(0, Math.floor((Date.now() - rec.since) / 1000));
+              bar.querySelector("time").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+            };
+            tick();
+            timer = setInterval(tick, 500);
+          } else {
+            shown = "";
+            bar.innerHTML = "";
+          }
+          report();
+        };
+
+        let last = "";
+        function report() {
+          const r = bar.getBoundingClientRect();
+          const size = `${Math.ceil(r.width)}x${Math.ceil(r.height)}`;
+          if (r.width && size !== last) {
+            last = size;
+            circle.send({ cmd: "recbar_size", width: Math.ceil(r.width), height: Math.ceil(r.height) });
+          }
+        }
+        new ResizeObserver(report).observe(bar);
+
+        bar.addEventListener("click", (event) => {
+          const t = event.target;
+          if (t.closest("[data-stop]")) return circle.action("stop_recording");
+          if (t.closest("[data-cancel]")) return circle.action("cancel_recording");
+          if (t.closest("[data-start]")) return circle.action({ start_recording: format });
+          const f = t.closest("[data-format]");
+          if (f) {
+            format = f.dataset.format;
+            for (const b of bar.querySelectorAll("[data-format]")) {
+              b.classList.toggle("on", b === f);
+              b.setAttribute("aria-checked", b === f);
+            }
+            return;
+          }
+          const m = t.closest("[data-mark]");
+          if (m) circle.send({ cmd: "settings", [`recording_${m.dataset.mark}`]: m.getAttribute("aria-pressed") !== "true" });
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && shown === "prompt") circle.action("cancel_recording");
+        });
+
+        circle.send({ cmd: "ready", from: "recbar" });
+      })();
+    </script>
+  </body>
+</html>

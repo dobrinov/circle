@@ -11,10 +11,15 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 - *What's new*: after an update, Circle shows the release notes of the new
   version once (and again from Help › What's New in Circle).
+- Recordings can show the pointer, clicks and the keys you press (passwords
+  as dots), switchable per recording and in Settings › Recording.
+- While the sidebar is hidden, recording controls float over the page instead
+  of opening the sidebar. They never appear in the recording.
 
 ### Fixed
 
 - Quitting Circle (⌘Q) could crash on the way out and leave a crash report.
+- The Video/GIF switch in the sidebar's recording controls was squashed.
 
 ## [0.1.1] - 2026-10-23
 

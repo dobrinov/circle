@@ -26,6 +26,9 @@ const SIDEBAR_URL: &str = "circle://ui/sidebar.html";
 const PALETTE_URL: &str = "circle://ui/palette.html";
 const PEEK_URL: &str = "circle://ui/sidebar.html?peek";
 const RECORDER_URL: &str = "circle://ui/recorder.html";
+const RECBAR_URL: &str = "circle://ui/recbar.html";
+/// How far the floating recording controls sit above the page's bottom edge.
+const RECBAR_MARGIN: c_int = 20;
 const UPDATE_EVERY_MS: i64 = 6 * 60 * 60 * 1000;
 /// The splash shown when the space has no open tab.
 const START_PAGE_URL: &str = "circle://ui/start.html";
@@ -174,6 +177,11 @@ pub enum UiCmd {
     PaletteHeight {
         height: c_int,
     },
+    /// The floating recording controls' size, to fit their overlay to.
+    RecbarSize {
+        width: c_int,
+        height: c_int,
+    },
     NewSpace {
         #[serde(default)]
         name: Option<String>,
@@ -222,6 +230,12 @@ pub enum UiCmd {
         auto_update: Option<bool>,
         #[serde(default)]
         spotlight_blur: Option<bool>,
+        #[serde(default)]
+        recording_clicks: Option<bool>,
+        #[serde(default)]
+        recording_keys: Option<bool>,
+        #[serde(default)]
+        recording_float: Option<bool>,
         /// A remembered site permission to forget.
         #[serde(default)]
         forget_grant: Option<String>,
@@ -686,6 +700,10 @@ pub struct Controller {
     /// The hidden page that encodes videos, created on first use.
     recorder: Option<(BrowserView, Option<OverlayController>)>,
     recorder_ready: bool,
+    /// Recording controls over the page, created on first use.
+    recbar: Option<(BrowserView, Option<OverlayController>)>,
+    recbar_ready: bool,
+    recbar_size: (c_int, c_int),
     /// A video recording waiting for the recorder page to load.
     pending_recording: Option<TabId>,
     /// What is being recorded and since when (Unix ms).
@@ -880,6 +898,9 @@ impl Controller {
             peek_ready: false,
             recorder: None,
             recorder_ready: false,
+            recbar: None,
+            recbar_ready: false,
+            recbar_size: (360, 48),
             pending_recording: None,
             recording: None,
             recording_saving: false,
@@ -933,6 +954,7 @@ impl Controller {
             Cmd::WindowResized => {
                 self.place_palette();
                 self.place_peek();
+                self.place_recbar();
                 self.apply_drag_regions();
             }
             Cmd::Title(id, title) => {
@@ -1167,6 +1189,10 @@ impl Controller {
                 match from.as_str() {
                     "sidebar" => self.sidebar_ready = true,
                     "peek" => self.peek_ready = true,
+                    "recbar" => {
+                        self.recbar_ready = true;
+                        self.ui_dirty = true;
+                    }
                     "start" => self.start_ready = true,
                     "recorder" => {
                         self.recorder_ready = true;
@@ -1269,6 +1295,10 @@ impl Controller {
             }
             UiCmd::Action { action } => self.handle_action(action),
             UiCmd::ClosePalette => self.close_palette(),
+            UiCmd::RecbarSize { width, height } => {
+                self.recbar_size = (width.clamp(80, 900), height.clamp(24, 300));
+                self.place_recbar();
+            }
             UiCmd::PaletteHeight { height } => {
                 self.palette_height = height.clamp(44, 560);
                 self.place_palette();
@@ -1325,8 +1355,21 @@ impl Controller {
                 agent_access,
                 auto_update,
                 spotlight_blur,
+                recording_clicks,
+                recording_keys,
+                recording_float,
                 forget_grant,
             } => {
+                if let Some(on) = recording_clicks {
+                    self.session.recording_clicks = on;
+                }
+                if let Some(on) = recording_keys {
+                    self.session.recording_keys = on;
+                }
+                if let Some(on) = recording_float {
+                    self.session.recording_float = on;
+                    self.place_recbar();
+                }
                 if let Some(on) = auto_update {
                     self.session.auto_update = on;
                 }
@@ -1617,8 +1660,9 @@ impl Controller {
                     self.record_prompt = None;
                 } else {
                     self.record_prompt = Some(format);
-                    // The controls live in the sidebar.
-                    if !self.session.sidebar_visible {
+                    // The controls live in the sidebar, or float over the
+                    // page while it is hidden.
+                    if !self.session.sidebar_visible && !self.session.recording_float {
                         self.set_sidebar_visible(true);
                     }
                 }
@@ -2290,7 +2334,7 @@ impl Controller {
         self.recording = Some((format, now_ms()));
         self.ui_dirty = true;
         match format {
-            Format::Gif => crate::recorder::start(tab, format),
+            Format::Gif => crate::recorder::start(tab, format, self.recording_marks()),
             Format::Video if self.recorder_ready => self.begin_video(tab),
             Format::Video => {
                 self.pending_recording = Some(tab);
@@ -2305,7 +2349,14 @@ impl Controller {
         if let Some((view, _)) = &self.recorder {
             run_js(view, "circleRecorder.start()");
         }
-        crate::recorder::start(tab, crate::recorder::Format::Video);
+        crate::recorder::start(tab, crate::recorder::Format::Video, self.recording_marks());
+    }
+
+    fn recording_marks(&self) -> crate::recorder::Marks {
+        crate::recorder::Marks {
+            clicks: self.session.recording_clicks,
+            keys: self.session.recording_keys,
+        }
     }
 
     /// The recorder page lives in a 2×2 overlay in the window's corner: a
@@ -2370,6 +2421,9 @@ impl Controller {
             "version": env!("CARGO_PKG_VERSION"),
             "auto_update": self.session.auto_update,
             "spotlight_blur": self.session.spotlight_blur,
+            "recording_clicks": self.session.recording_clicks,
+            "recording_keys": self.session.recording_keys,
+            "recording_float": self.session.recording_float,
             "hue": self.session.space().hue,
             "update": self.update_json(),
         })
@@ -2583,6 +2637,7 @@ impl Controller {
         self.sidebar_width = animation.from + (animation.to - animation.from) * ease_out(t);
         if t >= 1.0 {
             self.sidebar_animation = None;
+            self.place_recbar();
         } else {
             schedule(Timer::Animate, FRAME_MS);
         }
@@ -2981,8 +3036,56 @@ impl Controller {
     fn flush(&mut self) {
         if self.ui_dirty {
             self.ui_dirty = false;
+            self.place_recbar();
             self.push_state();
         }
+    }
+
+    /// Recording controls float over the page while the sidebar (where they
+    /// usually are) is hidden. They are their own overlay, so recordings of
+    /// the page never include them.
+    fn wants_recbar(&self) -> bool {
+        self.session.recording_float
+            && !self.session.sidebar_visible
+            && self.sidebar_animation.is_none()
+            && (self.record_prompt.is_some() || self.recording.is_some())
+    }
+
+    fn place_recbar(&mut self) {
+        if !self.wants_recbar() {
+            if let Some((_, Some(overlay))) = &self.recbar {
+                overlay.set_visible(0);
+            }
+            return;
+        }
+        if self.recbar.is_none() {
+            let Some(window) = &self.window else {
+                return;
+            };
+            let view = views::create_browser_view(Role::RecBar, RECBAR_URL, self.background());
+            let overlay =
+                window.add_overlay_view(Some(&mut View::from(&view)), DockingMode::CUSTOM, 1);
+            self.recbar = Some((view, overlay));
+        }
+        let Some((view, Some(overlay))) = &self.recbar else {
+            return;
+        };
+        let area = self.content.bounds();
+        let (width, height) = self.recbar_size;
+        let width = width.min(area.width - 2 * RECBAR_MARGIN);
+        overlay.set_bounds(Some(&Rect {
+            x: area.x + (area.width - width) / 2,
+            y: area.y + area.height - height - RECBAR_MARGIN,
+            width,
+            height,
+        }));
+        overlay.set_visible(1);
+        #[cfg(target_os = "macos")]
+        if let Some(browser) = view.browser() {
+            crate::mac::round_browser_window(&browser, 14.0, crate::mac::ALL_CORNERS);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = view;
     }
 
     fn push_state(&self) {
@@ -2993,6 +3096,11 @@ impl Controller {
         }
         if self.peek_ready {
             run_js(&self.peek, &code);
+        }
+        if let Some((view, _)) = &self.recbar
+            && self.recbar_ready
+        {
+            run_js(view, &code);
         }
         if self.start_ready && self.start.is_visible() != 0 {
             run_js(&self.start, &code);
@@ -3094,6 +3202,8 @@ impl Controller {
             "update": self.update_json(),
             "record_prompt": self.record_prompt.map(|format| json!({
                 "format": format,
+                "clicks": self.session.recording_clicks,
+                "keys": self.session.recording_keys,
                 "tab": self.session.active_tab().and_then(|id| self.session.tab(id)).map(|t| t.display_title().to_owned()),
             })),
             "bug_report": self.bug.as_ref().map(|b| json!({ "since": now_ms().saturating_sub(b.elapsed_ms()) })),

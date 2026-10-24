@@ -120,6 +120,11 @@
   $("report-bug").addEventListener("click", () => circle.action("report_bug"));
   $("check-updates").addEventListener("click", () => circle.action("check_for_updates"));
   $("auto-update").addEventListener("click", (e) => update({ auto_update: e.target.getAttribute("aria-checked") !== "true" }));
+  for (const name of ["clicks", "keys", "float"]) {
+    $(`recording-${name}`).addEventListener("click", (e) =>
+      update({ [`recording_${name}`]: e.target.getAttribute("aria-checked") !== "true" }),
+    );
+  }
   $("spotlight-blur").addEventListener("click", (e) => update({ spotlight_blur: e.target.getAttribute("aria-checked") !== "true" }));
   $("grants").addEventListener("click", (event) => {
     const button = event.target.closest("[data-forget]");
@@ -159,6 +164,9 @@
     $("version").textContent = s.version;
     $("nav-version").textContent = `Circle ${s.version}`;
     $("spotlight-blur").setAttribute("aria-checked", s.spotlight_blur !== false);
+    for (const name of ["clicks", "keys", "float"]) {
+      $(`recording-${name}`).setAttribute("aria-checked", s[`recording_${name}`] !== false);
+    }
     $("update-status").textContent = updateText(s.update);
     $("auto-update").setAttribute("aria-checked", s.auto_update);
     setSegment("appearance", s.appearance);

@@ -41,6 +41,19 @@ const GIF_MAX_WIDTH: u32 = 960;
 const GIF_SPEED: i32 = 20;
 const VIDEO_MAX_WIDTH: u32 = 1920;
 
+/// What a recording draws into the page, which the screencast can't show.
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct Marks {
+    /// The pointer and a ripple on each click.
+    pub clicks: bool,
+    /// The keys being pressed (secrets as dots).
+    pub keys: bool,
+}
+
+const OVERLAY_JS: &str = include_str!("../ui/rec-overlay.js");
+/// The isolated world the marks are drawn from.
+const OVERLAY_WORLD: &str = "circle-recording";
+
 /// Set to stop the recording in progress.
 static STOP: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 
@@ -50,11 +63,11 @@ static VIDEO_FILE: Mutex<Option<(File, PathBuf)>> = Mutex::new(None);
 /// Starts recording `tab` on a worker thread. For a video, the recorder page
 /// must already be loaded. The controller hears back via
 /// `Cmd::RecordingFinished`.
-pub fn start(tab: TabId, format: Format) {
+pub fn start(tab: TabId, format: Format, marks: Marks) {
     let stop = Arc::new(AtomicBool::new(false));
     *STOP.lock().unwrap() = Some(stop.clone());
     std::thread::spawn(move || {
-        let result = capture(tab, format, &stop);
+        let result = capture(tab, format, marks, &stop);
         STOP.lock().unwrap().take();
         run_on_ui(|| controller::dispatch(Cmd::RecordingSaving));
         match (format, result) {
@@ -87,8 +100,16 @@ struct Frame {
 
 /// Runs the screencast until stopped. Video frames go straight to the
 /// recorder page; GIF frames are collected and returned.
-fn capture(tab: TabId, format: Format, stop: &AtomicBool) -> Result<Vec<Frame>, String> {
+fn capture(
+    tab: TabId,
+    format: Format,
+    marks: Marks,
+    stop: &AtomicBool,
+) -> Result<Vec<Frame>, String> {
     let mut session = Session::open(tab).map_err(|e| format!("Can't record this tab: {e}"))?;
+    let overlay = (marks.clicks || marks.keys)
+        .then(|| show_marks(&mut session, marks))
+        .flatten();
     let max_width = match format {
         Format::Video => VIDEO_MAX_WIDTH,
         Format::Gif => GIF_MAX_WIDTH,
@@ -146,6 +167,9 @@ fn capture(tab: TabId, format: Format, stop: &AtomicBool) -> Result<Vec<Frame>, 
     }
     let ended = frames.last().map(|f| f.at).unwrap_or(0.0);
     let _ = session.call("Page.stopScreencast", json!({}), Duration::from_secs(5));
+    if let Some(identifier) = overlay {
+        hide_marks(&mut session, &identifier);
+    }
     if format == Format::Gif {
         if frames.is_empty() {
             return Err("Nothing was recorded".to_owned());
@@ -158,6 +182,58 @@ fn capture(tab: TabId, format: Format, stop: &AtomicBool) -> Result<Vec<Frame>, 
         });
     }
     Ok(frames)
+}
+
+/// Draws the pointer, clicks and keys into the page (and into pages the tab
+/// navigates to while recording). Returns the id of the new-document script.
+fn show_marks(session: &mut Session, marks: Marks) -> Option<String> {
+    let source = OVERLAY_JS.replace("__OPTIONS__", &json!(marks).to_string());
+    let timeout = Duration::from_secs(5);
+    let added = session
+        .call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": source, "worldName": OVERLAY_WORLD }),
+            timeout,
+        )
+        .ok()?;
+    // And into the page that is already open.
+    let frame = session
+        .call("Page.getFrameTree", json!({}), timeout)
+        .ok()
+        .and_then(|tree| tree["frameTree"]["frame"]["id"].as_str().map(str::to_owned));
+    let context = frame.and_then(|frame| {
+        session
+            .call(
+                "Page.createIsolatedWorld",
+                json!({ "frameId": frame, "worldName": OVERLAY_WORLD }),
+                timeout,
+            )
+            .ok()?["executionContextId"]
+            .as_i64()
+    });
+    if let Some(context) = context {
+        let _ = session.call(
+            "Runtime.evaluate",
+            json!({ "expression": source, "contextId": context }),
+            timeout,
+        );
+    }
+    added["identifier"].as_str().map(str::to_owned)
+}
+
+fn hide_marks(session: &mut Session, identifier: &str) {
+    let timeout = Duration::from_secs(5);
+    let _ = session.call(
+        "Page.removeScriptToEvaluateOnNewDocument",
+        json!({ "identifier": identifier }),
+        timeout,
+    );
+    // The marks' listeners check that their element is still in the page.
+    let _ = session.call(
+        "Runtime.evaluate",
+        json!({ "expression": "document.getElementById('__circle_recording_overlay')?.remove()" }),
+        timeout,
+    );
 }
 
 fn encode_gif(frames: &[Frame]) -> Result<PathBuf, String> {
