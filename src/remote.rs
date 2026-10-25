@@ -26,7 +26,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicU64, AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     time::Duration,
@@ -35,15 +35,18 @@ use tungstenite::{Message, WebSocket, protocol::Role as WsRole};
 
 static PORT: AtomicU16 = AtomicU16::new(0);
 static AGENT_ENABLED: AtomicBool = AtomicBool::new(false);
-static TOKENS: OnceLock<Tokens> = OnceLock::new();
+/// Used only by Circle's own DevTools windows; never leaves the process.
+static DEVTOOLS_TOKEN: OnceLock<String> = OnceLock::new();
+/// Handed to agents through `agent.json` while agent control is on. A new
+/// one each time it is turned on, so a token an agent kept stops working.
+static AGENT_TOKEN: Mutex<String> = Mutex::new(String::new());
+/// Bumped whenever agent control changes, which ends agents' open CDP
+/// connections.
+static AGENT_GENERATION: AtomicU64 = AtomicU64::new(0);
 static AGENT_FILE: OnceLock<PathBuf> = OnceLock::new();
-
-struct Tokens {
-    /// Used only by Circle's own DevTools windows; never leaves the process.
-    devtools: String,
-    /// Handed to agents through `agent.json` while agent control is on.
-    agent: String,
-}
+/// Connections being served at once, so a flood can't exhaust threads.
+static CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
+const MAX_CONNECTIONS: usize = 64;
 
 fn random_token() -> String {
     let mut bytes = [0u8; 24];
@@ -51,11 +54,8 @@ fn random_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn tokens() -> &'static Tokens {
-    TOKENS.get_or_init(|| Tokens {
-        devtools: random_token(),
-        agent: random_token(),
-    })
+fn devtools_token() -> &'static str {
+    DEVTOOLS_TOKEN.get_or_init(random_token)
 }
 
 /// Constant-time comparison so tokens can't be guessed byte by byte.
@@ -68,11 +68,12 @@ fn token_eq(a: &str, b: &str) -> bool {
 }
 
 fn is_devtools_token(token: &str) -> bool {
-    token_eq(token, &tokens().devtools)
+    token_eq(token, devtools_token())
 }
 
 fn is_agent_token(token: &str) -> bool {
-    AGENT_ENABLED.load(Ordering::SeqCst) && token_eq(token, &tokens().agent)
+    let agent = AGENT_TOKEN.lock().unwrap();
+    AGENT_ENABLED.load(Ordering::SeqCst) && !agent.is_empty() && token_eq(token, &agent)
 }
 
 pub fn port() -> u16 {
@@ -97,10 +98,15 @@ pub fn start(profile_dir: &Path) {
         .name("circle-control".into())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
+                if CONNECTIONS.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+                    CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
+                    continue;
+                }
                 std::thread::spawn(move || {
                     if let Err(err) = handle_connection(stream) {
                         eprintln!("circle: control connection: {err}");
                     }
+                    CONNECTIONS.fetch_sub(1, Ordering::SeqCst);
                 });
             }
         })
@@ -110,7 +116,17 @@ pub fn start(profile_dir: &Path) {
 /// Turns agent control on or off. While on, `agent.json` (mode 0600) holds
 /// the port and token so local agents such as `circle-mcp` can connect.
 pub fn set_agent_access(enabled: bool) {
+    let token = {
+        let mut agent = AGENT_TOKEN.lock().unwrap();
+        *agent = if enabled {
+            random_token()
+        } else {
+            String::new()
+        };
+        agent.clone()
+    };
     AGENT_ENABLED.store(enabled, Ordering::SeqCst);
+    AGENT_GENERATION.fetch_add(1, Ordering::SeqCst);
     let Some(path) = AGENT_FILE.get() else {
         return;
     };
@@ -118,7 +134,7 @@ pub fn set_agent_access(enabled: bool) {
         let _ = std::fs::remove_file(path);
         return;
     }
-    let info = json!({ "port": port(), "token": tokens().agent, "pid": std::process::id() });
+    let info = json!({ "port": port(), "token": token, "pid": std::process::id() });
     if let Err(err) = write_private(path, info.to_string().as_bytes()) {
         eprintln!("circle: failed to write {}: {err}", path.display());
     }
@@ -144,7 +160,7 @@ pub fn devtools_url(tab: TabId) -> Option<String> {
     (port != 0).then(|| {
         format!(
             "devtools://devtools/bundled/devtools_app.html?ws=127.0.0.1:{port}/devtools/{}/page/{tab}",
-            tokens().devtools
+            devtools_token()
         )
     })
 }
@@ -491,15 +507,6 @@ fn read_request(stream: &mut BufReader<TcpStream>) -> std::io::Result<Request> {
             headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_owned());
         }
     }
-    let length: usize = headers
-        .get("content-length")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-    if length > 8 * 1024 * 1024 {
-        return Err(std::io::Error::other("body too large"));
-    }
-    let mut body = vec![0; length];
-    stream.read_exact(&mut body)?;
     let (path, query) = target.split_once('?').unwrap_or((&target, ""));
     let query = url::form_urlencoded::parse(query.as_bytes())
         .into_owned()
@@ -509,8 +516,22 @@ fn read_request(stream: &mut BufReader<TcpStream>) -> std::io::Result<Request> {
         path: path.to_owned(),
         query,
         headers,
-        body,
+        body: Vec::new(),
     })
+}
+
+/// Reads the request body; only once the request is authorized.
+fn read_body(stream: &mut impl Read, request: &mut Request) -> std::io::Result<()> {
+    let length: usize = request
+        .headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if length > 8 * 1024 * 1024 {
+        return Err(std::io::Error::other("body too large"));
+    }
+    request.body = vec![0; length];
+    stream.read_exact(&mut request.body)
 }
 
 fn respond(stream: &mut TcpStream, status: u16, body: &Value) -> std::io::Result<()> {
@@ -533,7 +554,7 @@ fn respond(stream: &mut TcpStream, status: u16, body: &Value) -> std::io::Result
 fn handle_connection(stream: TcpStream) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
-    let request = read_request(&mut reader)?;
+    let mut request = read_request(&mut reader)?;
     let mut stream = stream;
 
     // Only accept requests addressed to the loopback interface, which keeps
@@ -548,7 +569,8 @@ fn handle_connection(stream: TcpStream) -> std::io::Result<()> {
         return respond(&mut stream, 403, &json!({ "error": "bad host" }));
     }
 
-    let segments: Vec<&str> = request.path.trim_matches('/').split('/').collect();
+    let path = request.path.clone();
+    let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
     let is_upgrade = request
         .headers
         .get("upgrade")
@@ -562,10 +584,16 @@ fn handle_connection(stream: TcpStream) -> std::io::Result<()> {
             let Ok(tab) = tab.parse::<TabId>() else {
                 return respond(&mut stream, 404, &json!({ "error": "no such tab" }));
             };
-            if is_agent_token(token) {
+            // Agents get only tabs they may use (never private ones, nor
+            // Circle's own or local-file pages); DevTools gets any tab.
+            let agent = !is_devtools_token(token);
+            if agent {
+                if !call_on_ui(move || controller::agent_may_use(tab)).unwrap_or(false) {
+                    return respond(&mut stream, 404, &json!({ "error": "no such tab" }));
+                }
                 agent::note_activity();
             }
-            serve_cdp(stream, &request, tab)
+            serve_cdp(stream, &request, tab, agent)
         }
         ("GET", ["json"] | ["json", "list"]) => {
             let Some(token) = request.bearer().map(str::to_owned) else {
@@ -575,7 +603,8 @@ fn handle_connection(stream: TcpStream) -> std::io::Result<()> {
                 return respond(&mut stream, 401, &json!({ "error": "bad token" }));
             }
             let port = port();
-            let tabs = call_on_ui(controller::tab_summaries).unwrap_or_default();
+            let agent = !is_devtools_token(&token);
+            let tabs = call_on_ui(move || controller::tab_summaries(agent)).unwrap_or_default();
             let targets: Vec<Value> = tabs
                 .into_iter()
                 .map(|t| {
@@ -600,6 +629,7 @@ fn handle_connection(stream: TcpStream) -> std::io::Result<()> {
                 };
                 return respond(&mut stream, 401, &json!({ "error": error }));
             }
+            read_body(&mut reader, &mut request)?;
             let args: Value = if request.body.is_empty() {
                 json!({})
             } else {
@@ -621,7 +651,13 @@ fn handle_connection(stream: TcpStream) -> std::io::Result<()> {
 }
 
 /// Completes the WebSocket handshake and relays CDP messages for one tab.
-fn serve_cdp(mut stream: TcpStream, request: &Request, tab: TabId) -> std::io::Result<()> {
+fn serve_cdp(
+    mut stream: TcpStream,
+    request: &Request,
+    tab: TabId,
+    agent: bool,
+) -> std::io::Result<()> {
+    let generation = AGENT_GENERATION.load(Ordering::SeqCst);
     let Some(key) = request.headers.get("sec-websocket-key") else {
         return respond(
             &mut stream,
@@ -647,12 +683,21 @@ fn serve_cdp(mut stream: TcpStream, request: &Request, tab: TabId) -> std::io::R
     let mut socket = WebSocket::from_raw_socket(stream, WsRole::Server, None);
     let result = (|| -> Result<(), tungstenite::Error> {
         loop {
+            // Turning agent control off (or on again) ends agents' sessions.
+            if agent && AGENT_GENERATION.load(Ordering::SeqCst) != generation {
+                let _ = socket.close(None);
+                return Ok(());
+            }
             while let Ok(text) = rx.try_recv() {
                 socket.send(Message::Text(text.into()))?;
             }
             match socket.read() {
                 Ok(Message::Text(text)) => {
                     let text = text.to_string();
+                    if agent && let Err(refusal) = agent_may_send(&text) {
+                        socket.send(Message::Text(refusal.to_string().into()))?;
+                        continue;
+                    }
                     run_on_ui(move || {
                         if let Err(err) = forward(tab, client, &text) {
                             eprintln!("circle: CDP: {err}");
@@ -676,9 +721,64 @@ fn serve_cdp(mut stream: TcpStream, request: &Request, tab: TabId) -> std::io::R
     Ok(())
 }
 
+/// Whether an agent may send this CDP message. Agents drive pages; they
+/// may not steer the whole browser, reach other targets or change where
+/// downloads go, and may navigate only to web pages. The refusal is the
+/// error response to send back.
+fn agent_may_send(text: &str) -> Result<(), Value> {
+    let message: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+    let method = message["method"].as_str().unwrap_or("");
+    let refuse = |why: &str| {
+        Err(json!({ "id": message["id"], "error": { "code": -32000, "message": why } }))
+    };
+    let domain = method.split('.').next().unwrap_or("");
+    if matches!(domain, "Browser" | "Target" | "SystemInfo" | "Tethering")
+        || matches!(
+            method,
+            "Page.setDownloadBehavior"
+                | "Page.navigateToHistoryEntry"
+                | "Storage.clearDataForOrigin"
+        )
+    {
+        return refuse("not available to agents");
+    }
+    if method == "Page.navigate"
+        && !message["params"]["url"]
+            .as_str()
+            .is_some_and(controller::is_web_url)
+    {
+        return refuse("agents can only open http and https pages");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agents_are_kept_to_pages() {
+        let ok = |m: &str| agent_may_send(m).is_ok();
+        assert!(ok(
+            r#"{"id":1,"method":"Runtime.evaluate","params":{"expression":"1"}}"#
+        ));
+        assert!(ok(
+            r#"{"id":2,"method":"Page.navigate","params":{"url":"https://example.com"}}"#
+        ));
+        assert!(!ok(
+            r#"{"id":3,"method":"Page.navigate","params":{"url":"file:///etc/passwd"}}"#
+        ));
+        assert!(!ok(
+            r#"{"id":4,"method":"Page.navigate","params":{"url":"circle://ui/settings.html"}}"#
+        ));
+        assert!(!ok(r#"{"id":5,"method":"Target.attachToBrowserTarget"}"#));
+        assert!(!ok(
+            r#"{"id":6,"method":"Browser.setDownloadBehavior","params":{}}"#
+        ));
+        assert!(!ok(
+            r#"{"id":7,"method":"Page.setDownloadBehavior","params":{}}"#
+        ));
+    }
 
     #[test]
     fn tokens_compare_exactly() {
@@ -696,13 +796,15 @@ mod tests {
     }
 
     #[test]
-    fn agent_token_requires_agent_access() {
-        let token = tokens().agent.clone();
-        AGENT_ENABLED.store(false, Ordering::SeqCst);
-        assert!(!is_agent_token(&token));
-        AGENT_ENABLED.store(true, Ordering::SeqCst);
-        assert!(is_agent_token(&token));
-        assert!(!is_devtools_token(&token));
-        AGENT_ENABLED.store(false, Ordering::SeqCst);
+    fn agent_token_requires_agent_access_and_changes() {
+        set_agent_access(true);
+        let first = AGENT_TOKEN.lock().unwrap().clone();
+        assert!(is_agent_token(&first));
+        assert!(!is_devtools_token(&first));
+        set_agent_access(false);
+        assert!(!is_agent_token(&first));
+        set_agent_access(true);
+        assert!(!is_agent_token(&first), "a new token each time");
+        set_agent_access(false);
     }
 }

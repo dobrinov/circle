@@ -182,6 +182,11 @@ browser. The UI pages talk to Rust with `fetch("circle://ui/api")`. Only the
 UI's own browsers may use that endpoint, and the scheme is display-isolated,
 so websites cannot reach it. Rust pushes state back with `circle.render(...)`.
 
+Circle's own views (sidebar, command bar, splash) refuse to navigate
+anywhere but `circle://ui/`, Rust only pushes state into them while they
+show Circle's pages, and those pages carry a Content-Security-Policy that
+allows only their own scripts.
+
 DevTools and agents use a second channel: a server on `127.0.0.1` (random
 port) that speaks the Chrome DevTools Protocol by relaying to CEF's
 `SendDevToolsMessage`, rather than enabling Chromium's unauthenticated
@@ -191,6 +196,16 @@ the profile (owner-only permissions) only while agent control is allowed. Reques
 must target a loopback host name, which blocks DNS-rebinding attacks from web
 pages. Several clients can attach to a tab at once; Circle rewrites request
 ids so each gets its own responses.
+
+Agents are kept to web pages: they can open and drive only `http(s)` tabs
+(not local files or Circle's own pages), never anything in fap mode, and
+over raw CDP they can't use browser-wide domains (`Browser`, `Target`) or
+redirect downloads. Turning agent control off closes their connections, and
+each time it is turned on there is a new token.
+
+On macOS the key that encrypts cookies lives in its own keychain item,
+"Circle Cookie Storage", rather than the "Chromium Safe Storage" item that
+other Chromium-based apps share (the bundler renames it in the framework).
 
 The profile (cookies, cache, `session.json`) lives in
 `~/Library/Application Support/Circle`, `%LOCALAPPDATA%\Circle` or

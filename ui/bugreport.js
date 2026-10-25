@@ -231,16 +231,14 @@
   $("open-issue").addEventListener("click", async () => {
     const repo = state.environment?.repository || "https://github.com/dobrinov/circle";
     const title = $("report-title").value.trim() || "Bug report";
-    let body = $("body").value;
-    let url = `${repo}/issues/new?${new URLSearchParams({ title, body })}`;
-    // Long reports don't fit in a URL: they go through the clipboard.
-    if (url.length > 7000) {
-      await copy(body);
-      body = "<!-- The report was copied to your clipboard: paste it here. -->\n";
-      url = `${repo}/issues/new?${new URLSearchParams({ title, body })}`;
-      status("The report is long: it was copied. Paste it into the issue.");
-    }
-    circle.send({ cmd: "navigate", input: url, new_tab: true });
+    // The report goes through the clipboard, not the address: an address
+    // would keep it in history (and in GitHub's logs) even if never posted.
+    const copied = await copy($("body").value);
+    const body = copied
+      ? "<!-- The report was copied to your clipboard: paste it here. -->\n"
+      : "<!-- Copy the report from Circle and paste it here. -->\n";
+    status(copied ? "Copied. Paste it into the issue." : "Copy the report and paste it into the issue.");
+    circle.send({ cmd: "navigate", input: `${repo}/issues/new?${new URLSearchParams({ title, body })}`, new_tab: true });
   });
 
   circle.send({ cmd: "bug_report_ready" });

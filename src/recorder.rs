@@ -167,8 +167,8 @@ fn capture(
     }
     let ended = frames.last().map(|f| f.at).unwrap_or(0.0);
     let _ = session.call("Page.stopScreencast", json!({}), Duration::from_secs(5));
-    if let Some(identifier) = overlay {
-        hide_marks(&mut session, &identifier);
+    if let Some(overlay) = overlay {
+        hide_marks(&mut session, &overlay);
     }
     if format == Format::Gif {
         if frames.is_empty() {
@@ -186,8 +186,14 @@ fn capture(
 
 /// Draws the pointer, clicks and keys into the page (and into pages the tab
 /// navigates to while recording). Returns the id of the new-document script.
-fn show_marks(session: &mut Session, marks: Marks) -> Option<String> {
-    let source = OVERLAY_JS.replace("__OPTIONS__", &json!(marks).to_string());
+fn show_marks(session: &mut Session, marks: Marks) -> Option<(String, String)> {
+    let mut random = [0u8; 12];
+    getrandom::fill(&mut random).ok()?;
+    let element: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    let element = format!("circle-recording-{element}");
+    let source = OVERLAY_JS
+        .replace("__OPTIONS__", &json!(marks).to_string())
+        .replace("__ID__", &element);
     let timeout = Duration::from_secs(5);
     let added = session
         .call(
@@ -197,6 +203,14 @@ fn show_marks(session: &mut Session, marks: Marks) -> Option<String> {
         )
         .ok()?;
     // And into the page that is already open.
+    run_isolated(session, &source);
+    Some((added["identifier"].as_str()?.to_owned(), element))
+}
+
+/// Runs `source` in the overlay's isolated world of the current page, where
+/// the page's own scripts can't interfere.
+fn run_isolated(session: &mut Session, source: &str) {
+    let timeout = Duration::from_secs(5);
     let frame = session
         .call("Page.getFrameTree", json!({}), timeout)
         .ok()
@@ -218,21 +232,18 @@ fn show_marks(session: &mut Session, marks: Marks) -> Option<String> {
             timeout,
         );
     }
-    added["identifier"].as_str().map(str::to_owned)
 }
 
-fn hide_marks(session: &mut Session, identifier: &str) {
-    let timeout = Duration::from_secs(5);
+fn hide_marks(session: &mut Session, (identifier, element): &(String, String)) {
     let _ = session.call(
         "Page.removeScriptToEvaluateOnNewDocument",
         json!({ "identifier": identifier }),
-        timeout,
+        Duration::from_secs(5),
     );
     // The marks' listeners check that their element is still in the page.
-    let _ = session.call(
-        "Runtime.evaluate",
-        json!({ "expression": "document.getElementById('__circle_recording_overlay')?.remove()" }),
-        timeout,
+    run_isolated(
+        session,
+        &format!("document.getElementById({})?.remove()", json!(element)),
     );
 }
 

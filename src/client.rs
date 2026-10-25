@@ -204,6 +204,7 @@ wrap_display_handler! {
                 let source = string(source);
                 let place = if source.is_empty() { String::new() } else { format!("{source}:{line}") };
                 controller::dispatch(Cmd::BugLog {
+                    tab: match self.role { Role::Tab(id) => Some(id), _ => None },
                     kind,
                     text: string(message),
                     url: Some(place),
@@ -243,7 +244,7 @@ wrap_life_span_handler! {
             target_url: Option<&CefString>,
             _target_frame_name: Option<&CefString>,
             target_disposition: WindowOpenDisposition,
-            _user_gesture: c_int,
+            user_gesture: c_int,
             _popup_features: Option<&PopupFeatures>,
             _window_info: Option<&mut WindowInfo>,
             client: Option<&mut Option<Client>>,
@@ -252,6 +253,10 @@ wrap_life_span_handler! {
             _no_javascript_access: Option<&mut c_int>,
         ) -> c_int {
             let url = string(target_url);
+            // Pop-up blocking: pages open tabs and windows only when clicked.
+            if user_gesture == 0 && matches!(self.role, Role::Tab(_) | Role::Popup) {
+                return 1;
+            }
             let opener = match self.role {
                 Role::Tab(id) => Some(id),
                 _ => None,
@@ -322,6 +327,26 @@ wrap_request_handler! {
     }
 
     impl RequestHandler {
+        /// Circle's own views (sidebar, command bar, splash, …) only ever
+        /// show Circle's pages: a link dropped on them, or anything else,
+        /// can't navigate them to a website, which would then receive the
+        /// state Circle pushes there and could pass for Circle's UI.
+        fn on_before_browse(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            request: Option<&mut Request>,
+            _user_gesture: c_int,
+            _is_redirect: c_int,
+        ) -> c_int {
+            let ui = matches!(
+                self.role,
+                Role::Sidebar | Role::Palette | Role::Peek | Role::Recorder | Role::Start | Role::RecBar
+            );
+            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            (ui && !url.starts_with("circle://ui/")) as c_int
+        }
+
         fn on_render_process_terminated(
             &self,
             browser: Option<&mut Browser>,
@@ -334,6 +359,7 @@ wrap_request_handler! {
                     .and_then(|b| b.main_frame())
                     .map(|f| CefString::from(&f.url()).to_string());
                 controller::dispatch(Cmd::BugLog {
+                    tab: match self.role { Role::Tab(id) => Some(id), _ => None },
                     kind: "page crashed",
                     text: format!("{} (code {error_code})", string(error_string)),
                     url,
@@ -369,6 +395,7 @@ wrap_load_handler! {
             if matches!(self.role, Role::Tab(_)) && crate::bugreport::is_recording() && text != "ERR_ABORTED" {
                 let main = frame.is_some_and(|f| f.is_main() != 0);
                 controller::dispatch(Cmd::BugLog {
+                    tab: match self.role { Role::Tab(id) => Some(id), _ => None },
                     kind: if main { "load failed" } else { "frame load failed" },
                     text,
                     url: Some(string(failed_url)),
@@ -468,6 +495,136 @@ fn run_shortcut(role: Role, event: Option<&KeyEvent>) -> c_int {
     }
 }
 
+/// File types that run code when opened.
+fn is_dangerous_download(name: &str) -> bool {
+    const DANGEROUS: &[&str] = &[
+        "app",
+        "command",
+        "tool",
+        "terminal",
+        "pkg",
+        "mpkg",
+        "dmg",
+        "workflow",
+        "scpt",
+        "scptd",
+        "applescript",
+        "jar",
+        "sh",
+        "bash",
+        "zsh",
+        "csh",
+        "ksh",
+        "py",
+        "pl",
+        "rb",
+        "php",
+        "desktop",
+        "appimage",
+        "run",
+        "deb",
+        "rpm",
+        "exe",
+        "msi",
+        "msix",
+        "appx",
+        "bat",
+        "cmd",
+        "com",
+        "scr",
+        "pif",
+        "ps1",
+        "psm1",
+        "vbs",
+        "vbe",
+        "js",
+        "jse",
+        "wsf",
+        "wsh",
+        "hta",
+        "lnk",
+        "reg",
+        "cpl",
+        "inf",
+        "url",
+        "webloc",
+        "dll",
+        "msc",
+        "jnlp",
+    ];
+    std::path::Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .is_some_and(|e| DANGEROUS.contains(&e.as_str()))
+}
+
+/// Downloads each browser started recently, to throttle floods.
+static RECENT_DOWNLOADS: std::sync::Mutex<Vec<(i32, std::time::Instant)>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn allow_download(browser: i32) -> bool {
+    const WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+    const MAX: usize = 5;
+    let now = std::time::Instant::now();
+    let mut recent = RECENT_DOWNLOADS.lock().unwrap();
+    recent.retain(|(_, at)| now.duration_since(*at) < WINDOW);
+    if recent.iter().filter(|(b, _)| *b == browser).count() >= MAX {
+        return false;
+    }
+    recent.push((browser, now));
+    true
+}
+
+/// Marks a finished download as coming from the internet (macOS
+/// quarantine, Windows Mark of the Web), unless Chromium already did, so
+/// the system checks it before it first runs.
+fn mark_downloaded(path: &std::path::Path, url: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(file) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+            return;
+        };
+        let name = c"com.apple.quarantine";
+        // SAFETY: both strings are NUL-terminated and outlive the calls.
+        let present =
+            unsafe { libc::getxattr(file.as_ptr(), name.as_ptr(), std::ptr::null_mut(), 0, 0, 0) }
+                >= 0;
+        if !present {
+            let seconds = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs());
+            let value = format!("0081;{seconds:08x};Circle;");
+            unsafe {
+                libc::setxattr(
+                    file.as_ptr(),
+                    name.as_ptr(),
+                    value.as_ptr().cast(),
+                    value.len(),
+                    0,
+                    0,
+                );
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let mut stream = path.as_os_str().to_owned();
+        stream.push(":Zone.Identifier");
+        let stream = std::path::PathBuf::from(stream);
+        if !stream.exists() {
+            let host = url::Url::parse(url)
+                .map(|u| u.origin().ascii_serialization())
+                .unwrap_or_default();
+            let _ = std::fs::write(
+                stream,
+                format!("[ZoneTransfer]\r\nZoneId=3\r\nHostUrl={host}\r\n"),
+            );
+        }
+    }
+    let _ = (path, url);
+}
+
 fn unique_download_path(dir: PathBuf, name: &str) -> PathBuf {
     let name = if name.trim().is_empty() {
         "download"
@@ -497,13 +654,17 @@ wrap_download_handler! {
 
     impl DownloadHandler {
         /// The C++ default allows downloads; the Rust default would block them.
+        /// A page may start a few downloads at a time, not a flood.
         fn can_download(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _url: Option<&CefString>,
             _request_method: Option<&CefString>,
         ) -> c_int {
-            1
+            let Some(browser) = browser else {
+                return 1;
+            };
+            allow_download(browser.identifier()) as c_int
         }
 
         fn on_before_download(
@@ -517,8 +678,12 @@ wrap_download_handler! {
                 return 0;
             };
             let dir = crate::downloads_dir();
-            let path = unique_download_path(dir, &string(suggested_name));
-            callback.cont(Some(&CefString::from(path.to_string_lossy().as_ref())), 0);
+            let name = string(suggested_name);
+            let path = unique_download_path(dir, &name);
+            // Files that run when opened are saved only once the person
+            // confirms them in the save dialog.
+            let confirm = is_dangerous_download(&name);
+            callback.cont(Some(&CefString::from(path.to_string_lossy().as_ref())), confirm as c_int);
             1
         }
 
@@ -539,6 +704,12 @@ wrap_download_handler! {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
+            if item.is_complete() != 0 {
+                mark_downloaded(
+                    std::path::Path::new(&path),
+                    &CefString::from(&item.url()).to_string(),
+                );
+            }
             controller::dispatch(Cmd::Download(DownloadInfo {
                 id: item.id(),
                 at: 0,
@@ -708,6 +879,36 @@ wrap_context_menu_handler! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dangerous_downloads_need_confirming() {
+        for name in [
+            "Setup.exe",
+            "install.COMMAND",
+            "x.pkg",
+            "run.sh",
+            "a.tar.gz.app",
+        ] {
+            assert!(is_dangerous_download(name), "{name}");
+        }
+        for name in [
+            "report.pdf",
+            "photo.jpg",
+            "notes.txt",
+            "archive.zip",
+            "noext",
+        ] {
+            assert!(!is_dangerous_download(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn download_floods_are_throttled() {
+        let browser = -77;
+        let allowed = (0..8).filter(|_| allow_download(browser)).count();
+        assert_eq!(allowed, 5);
+        assert!(allow_download(-78), "other pages aren't affected");
+    }
 
     #[test]
     fn parses_grip_messages() {

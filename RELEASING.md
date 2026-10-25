@@ -50,9 +50,20 @@ All three crates (`circle`, `circle-mcp`, `xtask`) share one version.
    `xtask release` sets the version everywhere, moves the Unreleased notes
    into a dated `0.2.0` section, refreshes `Cargo.lock`, commits
    "Release v0.2.0" and tags `v0.2.0`. It pushes nothing.
-4. The **Release** workflow checks that the tag matches `Cargo.toml` and
-   `CHANGELOG.md`, builds every platform, and publishes the release with
-   the changelog section, a download table and `SHA256SUMS.txt`.
+4. The **Release** workflow waits for your approval: open the run on
+   GitHub › *Review deployments* › *release* › *Approve*. Nothing builds with
+   the signing secrets, or publishes, before that. It then checks that the
+   tag matches `Cargo.toml` and `CHANGELOG.md`, builds every platform, and
+   publishes the release with the changelog section, a download table and
+   `SHA256SUMS.txt`.
+
+Only repository admins can push `v*` tags (the *Release tags* ruleset).
+
+To check a signing change (entitlements, the bundle) without releasing,
+run **Signed build check** (Actions › Signed build check › *Run workflow*,
+or `gh workflow run signed-check.yml`). It needs the same approval, builds,
+signs and notarizes, then starts the signed app and checks that a page
+renders and runs JavaScript.
 
 To redo a failed release, delete the GitHub release and the tag
 (`git push --delete origin v0.2.0 && git tag -d v0.2.0`), fix, and tag again.
@@ -63,8 +74,10 @@ Unsigned builds work, but macOS and Windows warn about them.
 
 **macOS.** Releases must be signed with a Developer ID and notarized: the
 Release workflow fails on macOS without these secrets, so nothing ships that
-macOS refuses to open. (CI and nightly builds without them are signed ad hoc.)
-Add them under Settings › Secrets and variables › Actions:
+macOS refuses to open. CI and nightly builds never get the secrets and are
+signed ad hoc; only release and signed-check builds, after your approval,
+see them, and only in the steps that sign. Add them under Settings › Secrets
+and variables › Actions:
 
 | Secret | Value |
 | --- | --- |
@@ -91,10 +104,17 @@ account holder can create Developer ID certificates):
    App-Specific Passwords › **+** (name it "Circle notarization").
 5. Delete `circle.p12` afterwards.
 
-Each macOS build then signs the app with the hardened runtime
-(`packaging/macos/*.entitlements` give Chromium its JIT), signs and
-notarizes the disk image, staples the ticket, and checks the result with
-`spctl` before anything is published.
+Each signed build then signs the app with the hardened runtime, signs and
+notarizes the disk image, staples the ticket, checks the result with
+`codesign` and `spctl`, and starts it. The entitlements in
+`packaging/macos/` follow Chrome's: JIT for the renderer and GPU helpers,
+the plugin helper's exceptions, and nothing else; the app itself keeps
+library validation, since it holds the camera, microphone and location.
+
+Installed copies only install an update on macOS if it passes the same
+checks and is signed by team `5ZX3P79WQZ` (`TEAM_ID` in `src/updater.rs`),
+so a release published by anyone else, or altered, never installs. If the
+team ever changes, ship one release that accepts both.
 
 **Windows.** Builds are unsigned, so SmartScreen warns on first run until
 the installer builds reputation. Code signing would be added to
@@ -131,3 +151,7 @@ Settings › Updates), download their platform's file, verify it against
 `SHA256SUMS.txt` and install it on quit. That means every release must keep
 the file names in the table above and include `SHA256SUMS.txt`, which the
 Release workflow does. Pre-releases and the nightly are never offered.
+Downloads are HTTPS only, and on macOS the app must also pass the signature
+checks above. (Windows and Linux updates rely on GitHub and HTTPS alone
+until releases are signed there too.) `CIRCLE_UPDATE_FEED` points
+development builds at a test feed; release builds ignore it.

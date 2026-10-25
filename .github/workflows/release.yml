@@ -8,12 +8,24 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: read
+
 jobs:
+  # Nothing builds with the signing secrets, or publishes, until the
+  # maintainer approves the run (the "release" environment requires it).
+  approve:
+    name: Approve release
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - run: echo "Approved ${GITHUB_REF_NAME}"
+
   check:
     name: Check version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Tag matches Cargo.toml and CHANGELOG.md
         run: |
           version="${GITHUB_REF_NAME#v}"
@@ -28,12 +40,12 @@ jobs:
           fi
 
   build:
-    needs: check
+    needs: [approve, check]
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:
       retention-days: 30
-      require-signing: true
+      sign: true
 
   publish:
     name: Publish release
@@ -42,8 +54,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
           merge-multiple: true
@@ -82,7 +94,7 @@ jobs:
             echo "Verify downloads with \`SHA256SUMS.txt\`."
           } >> notes.md
           cat notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: Circle ${{ github.ref_name }}
           body_path: notes.md

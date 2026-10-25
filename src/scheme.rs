@@ -105,6 +105,21 @@ const ASSETS: &[(&str, &str, &[u8])] = &[
         include_bytes!("../ui/recbar.html"),
     ),
     (
+        "/recbar.js",
+        "text/javascript",
+        include_bytes!("../ui/recbar.js"),
+    ),
+    (
+        "/recorder.js",
+        "text/javascript",
+        include_bytes!("../ui/recorder.js"),
+    ),
+    (
+        "/start.js",
+        "text/javascript",
+        include_bytes!("../ui/start.js"),
+    ),
+    (
         "/recorder.html",
         "text/html",
         include_bytes!("../ui/recorder.html"),
@@ -157,6 +172,26 @@ fn request_body(request: &mut Request) -> Vec<u8> {
     body
 }
 
+/// Circle's pages that open in ordinary tabs (exactly these, with an
+/// optional query or fragment).
+fn is_tab_page(url: &str) -> bool {
+    ["history.html", "settings.html", "bugreport.html"]
+        .iter()
+        .any(|page| {
+            url.strip_prefix("circle://ui/")
+                .and_then(|rest| rest.strip_prefix(page))
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(['?', '#']))
+        })
+}
+
+/// What Circle's pages may load and run: only their own scripts, so an
+/// escaping slip in a page can't become script execution. Images come
+/// from anywhere (site icons).
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; \
+    style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src 'self' blob: data:; \
+    connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; \
+    frame-ancestors 'self'";
+
 fn response(status: c_int, mime: &'static str, data: Vec<u8>) -> Option<ResourceHandler> {
     Some(BytesResource::new(
         Arc::new(data),
@@ -182,22 +217,14 @@ wrap_scheme_handler_factory! {
             let path = url::Url::parse(&url).ok()?.path().to_owned();
 
             // Circle's own pages may use the API: the sidebar and command bar
-            // (by browser), and the history page while it is the top-level
-            // page of its tab. Websites can't load or embed circle:// pages.
-            let is_history_page = frame.is_some_and(|f| {
-                f.is_main() != 0
-                    && CefString::from(&f.url())
-                        .to_string()
-                        .starts_with("circle://ui/history")
-                    || CefString::from(&f.url())
-                        .to_string()
-                        .starts_with("circle://ui/settings")
-                    || CefString::from(&f.url())
-                        .to_string()
-                        .starts_with("circle://ui/bugreport")
+            // (by browser), and the history, settings and bug report pages
+            // while one is the top-level page of its tab. Websites can't
+            // load or embed circle:// pages.
+            let is_internal_page = frame.is_some_and(|f| {
+                f.is_main() != 0 && is_tab_page(&CefString::from(&f.url()).to_string())
             });
             let ui_browser = is_ui_browser(browser);
-            let trusted = is_history_page || ui_browser;
+            let trusted = is_internal_page || ui_browser;
 
             if path == "/api/history" {
                 if !trusted {
@@ -316,6 +343,13 @@ wrap_resource_handler! {
                     Some(&CefString::from("no-store")),
                     1,
                 );
+                if self.mime == "text/html" {
+                    response.set_header_by_name(
+                        Some(&CefString::from("Content-Security-Policy")),
+                        Some(&CefString::from(CONTENT_SECURITY_POLICY)),
+                        1,
+                    );
+                }
             }
             if let Some(length) = response_length {
                 *length = self.data.len() as i64;
@@ -341,6 +375,32 @@ wrap_resource_handler! {
             unsafe { std::ptr::copy_nonoverlapping(remaining.as_ptr(), data_out, count) };
             *offset += count;
             1
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_exact_internal_pages_are_trusted() {
+        for url in [
+            "circle://ui/history.html",
+            "circle://ui/history.html?clear",
+            "circle://ui/settings.html#updates",
+            "circle://ui/bugreport.html",
+        ] {
+            assert!(is_tab_page(url), "{url}");
+        }
+        for url in [
+            "circle://ui/history.htmlx",
+            "circle://ui/settings.html.evil",
+            "circle://ui/sidebar.html",
+            "https://circle/ui/settings.html",
+            "circle://uix/settings.html",
+        ] {
+            assert!(!is_tab_page(url), "{url}");
         }
     }
 }

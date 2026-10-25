@@ -1,10 +1,12 @@
 // Drawn into a page while Circle records it, so the recording shows what the
 // screencast can't: the pointer, clicks and the keys being pressed. Circle
-// runs it (with `__OPTIONS__` filled in) in an isolated world, so the page's
+// runs it (with `__OPTIONS__` and a random `__ID__` filled in) in an
+// isolated world, so the page's
 // own scripts neither see it nor break it. The marks live in a closed shadow
 // root that ignores the pointer, and go away when the recording stops.
 (() => {
-  const ID = "__circle_recording_overlay";
+  // Random per recording, so a page can't claim it in advance.
+  const ID = "__ID__";
   if (!document.documentElement || document.getElementById(ID)) return;
   const options = __OPTIONS__;
   const mac = navigator.platform.startsWith("Mac");

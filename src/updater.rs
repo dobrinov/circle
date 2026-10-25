@@ -26,6 +26,12 @@ use std::{
 
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
+/// Updates must be signed by this Apple Developer team (and notarized)
+/// before they replace Circle on macOS, so a release published by anyone
+/// else, or tampered with, never installs.
+#[cfg(not(windows))]
+const TEAM_ID: &str = "5ZX3P79WQZ";
+
 /// One check or download at a time.
 static BUSY: AtomicBool = AtomicBool::new(false);
 
@@ -81,10 +87,14 @@ struct Asset {
 }
 
 fn feed_url() -> String {
-    std::env::var("CIRCLE_UPDATE_FEED").unwrap_or_else(|_| {
-        let repo = env!("CARGO_PKG_REPOSITORY").trim_start_matches("https://github.com/");
-        format!("https://api.github.com/repos/{repo}/releases/latest")
-    })
+    // Tests point development builds at a fake feed; release builds ignore
+    // it, so nothing in the environment can redirect real updates.
+    #[cfg(debug_assertions)]
+    if let Ok(url) = std::env::var("CIRCLE_UPDATE_FEED") {
+        return url;
+    }
+    let repo = env!("CARGO_PKG_REPOSITORY").trim_start_matches("https://github.com/");
+    format!("https://api.github.com/repos/{repo}/releases/latest")
 }
 
 /// Checks for a newer release and, if this install can update itself and
@@ -117,6 +127,12 @@ fn curl() -> Command {
         "--show-error",
         "--fail",
         "--location",
+        // HTTPS only, redirects included.
+        "--proto",
+        "=https",
+        "--proto-redir",
+        "=https",
+        "--tlsv1.2",
         "--connect-timeout",
         "15",
     ])
@@ -156,7 +172,7 @@ fn check_and_fetch(dir: &Path, download: bool) -> Result<Status, String> {
     let asset = release
         .assets
         .iter()
-        .find(|a| a.name.ends_with(asset_suffix()));
+        .find(|a| a.name.ends_with(asset_suffix()) && is_plain_file_name(&a.name));
     let (Some(asset), true) = (asset, can_self_update()) else {
         return Ok(Status::Available {
             version,
@@ -171,17 +187,28 @@ fn check_and_fetch(dir: &Path, download: bool) -> Result<Status, String> {
     }
 
     let target = dir.join(&asset.name);
-    if !(target.exists() && verify(&release, asset, &target).is_ok()) {
-        fetch(asset, &target, &version)?;
-        if let Err(err) = verify(&release, asset, &target) {
-            let _ = fs::remove_file(&target);
-            return Err(err);
+    let sha256 = match verify(&release, asset, &target) {
+        Ok(sha256) if target.exists() => sha256,
+        _ => {
+            fetch(asset, &target, &version)?;
+            verify(&release, asset, &target).inspect_err(|_| {
+                let _ = fs::remove_file(&target);
+            })?
         }
-    }
+    };
+    #[cfg(target_os = "macos")]
+    verify_signature_in_dmg(&target).inspect_err(|_| {
+        let _ = fs::remove_file(&target);
+    })?;
     fs::write(
         dir.join("pending.json"),
-        serde_json::json!({ "version": version, "file": target, "page": release.html_url })
-            .to_string(),
+        serde_json::json!({
+            "version": version,
+            "file": target,
+            "sha256": sha256,
+            "page": release.html_url,
+        })
+        .to_string(),
     )
     .map_err(|e| e.to_string())?;
     Ok(Status::Ready { version })
@@ -193,8 +220,14 @@ pub fn pending(dir: &Path) -> Option<Update> {
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
     let version = value["version"].as_str()?.to_owned();
     let file = PathBuf::from(value["file"].as_str()?);
-    // Already installed (or older): forget it.
-    if !is_newer(&version, CURRENT) || !file.exists() {
+    // Already installed (or older), not where downloads go, or changed
+    // since it was checked: forget it.
+    let usable = is_newer(&version, CURRENT)
+        && file.parent() == Some(dir)
+        && value["sha256"]
+            .as_str()
+            .is_some_and(|sha| sha256_of(&file).is_ok_and(|actual| actual == sha));
+    if !usable {
         let _ = fs::remove_file(dir.join("pending.json"));
         return None;
     }
@@ -248,8 +281,78 @@ fn fetch(asset: &Asset, target: &Path, version: &str) -> Result<(), String> {
     fs::rename(&partial, target).map_err(|e| e.to_string())
 }
 
-/// Checks a download against the release's `SHA256SUMS.txt`.
-fn verify(release: &Release, asset: &Asset, file: &Path) -> Result<(), String> {
+/// A release asset name that is just a file name (no folders), so it can't
+/// write outside the updates folder.
+fn is_plain_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['/', '\\'])
+        && Path::new(name).file_name() == Some(std::ffi::OsStr::new(name))
+}
+
+fn sha256_of(file: &Path) -> Result<String, String> {
+    let mut hasher = Sha256::new();
+    let mut f = File::open(file).map_err(|e| e.to_string())?;
+    std::io::copy(&mut f, &mut hasher).map_err(|e| e.to_string())?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// The code-signing check the installer repeats right before it swaps the
+/// app in: valid, notarized, and from Circle's team.
+#[cfg(not(windows))]
+fn signature_check(app: &str) -> String {
+    format!(
+        "codesign --verify --deep --strict {app} && \\\n\
+         codesign --verify -R='anchor apple generic and certificate leaf[subject.OU] = \"{TEAM_ID}\"' {app} && \\\n\
+         spctl --assess --type execute {app}"
+    )
+}
+
+/// Mounts a downloaded disk image and checks the app in it is signed by
+/// Circle's team and notarized, before offering it.
+#[cfg(target_os = "macos")]
+fn verify_signature_in_dmg(dmg: &Path) -> Result<(), String> {
+    let mount = dmg.with_extension("verify");
+    let _ = fs::create_dir_all(&mount);
+    let attached = Command::new("hdiutil")
+        .args(["attach", "-nobrowse", "-readonly", "-mountpoint"])
+        .arg(&mount)
+        .arg(dmg)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !attached.status.success() {
+        let _ = fs::remove_dir(&mount);
+        return Err("couldn't open the downloaded update".to_owned());
+    }
+    let app = fs::read_dir(&mount).ok().and_then(|entries| {
+        entries
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|e| e == "app"))
+    });
+    let ok = app.is_some_and(|app| {
+        Command::new("/bin/sh")
+            .arg("-c")
+            .arg(signature_check(&shell_quote(&app.to_string_lossy())))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    });
+    let _ = Command::new("hdiutil")
+        .args(["detach", "-quiet"])
+        .arg(&mount)
+        .status();
+    let _ = fs::remove_dir(&mount);
+    if ok {
+        Ok(())
+    } else {
+        Err("the update isn't signed by Circle's developer, so it wasn't installed".to_owned())
+    }
+}
+
+/// Checks a download against the release's `SHA256SUMS.txt` and returns
+/// its hash.
+fn verify(release: &Release, asset: &Asset, file: &Path) -> Result<String, String> {
     let sums = release
         .assets
         .iter()
@@ -264,12 +367,9 @@ fn verify(release: &Release, asset: &Asset, file: &Path) -> Result<(), String> {
             (name.trim().trim_start_matches('*') == asset.name).then(|| hash.to_lowercase())
         })
         .ok_or("the update isn't in the checksums")?;
-    let mut hasher = Sha256::new();
-    let mut f = File::open(file).map_err(|e| e.to_string())?;
-    std::io::copy(&mut f, &mut hasher).map_err(|e| e.to_string())?;
-    let actual = format!("{:x}", hasher.finalize());
+    let actual = sha256_of(file)?;
     if actual == expected {
-        Ok(())
+        Ok(actual)
     } else {
         Err("the downloaded update didn't match its checksum".to_owned())
     }
@@ -328,6 +428,12 @@ fn can_self_update() -> bool {
     if location.components().any(|c| c.as_os_str() == "target") {
         return false;
     }
+    // Run as root (`sudo circle`), a package install looks writable; it
+    // belongs to the package manager.
+    #[cfg(unix)]
+    if unsafe { libc::geteuid() } == 0 {
+        return false;
+    }
     match std::env::consts::OS {
         // The installer takes care of permissions.
         "windows" => true,
@@ -378,10 +484,15 @@ pub fn install_on_exit(update: &Update, relaunch: bool) -> Result<(), String> {
                 "mkdir -p {m}\n\
                  hdiutil attach -nobrowse -readonly -mountpoint {m} {dmg} >/dev/null || exit 1\n\
                  new=$(ls -d {m}/*.app | head -1)\n\
-                 rm -rf {app}.old && mv {app} {app}.old && ditto \"$new\" {app} && rm -rf {app}.old || {{ rm -rf {app}; mv {app}.old {app}; }}\n\
+                 if ! ( {check} ); then hdiutil detach {m} >/dev/null; exit 1; fi\n\
+                 rm -rf {app}.old\n\
+                 if mv {app} {app}.old; then\n\
+                 \x20 if ditto \"$new\" {app}; then rm -rf {app}.old; else rm -rf {app}; mv {app}.old {app}; fi\n\
+                 fi\n\
                  xattr -dr com.apple.quarantine {app} 2>/dev/null\n\
                  hdiutil detach {m} >/dev/null\n\
                  {relaunch}",
+                check = signature_check("\"$new\""),
                 m = quote(&mount),
                 dmg = quote(&update.file),
                 app = quote(&location),
@@ -471,6 +582,24 @@ fn shell_quote(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn asset_names_stay_in_the_updates_folder() {
+        assert!(is_plain_file_name("Circle-0.1.2-macos-arm64.dmg"));
+        assert!(!is_plain_file_name("../Circle-macos-arm64.dmg"));
+        assert!(!is_plain_file_name("/tmp/x-macos-arm64.dmg"));
+        assert!(!is_plain_file_name("a\\b-windows-x86_64-setup.exe"));
+        assert!(!is_plain_file_name(""));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn the_installer_checks_the_signature_and_team() {
+        let check = signature_check("\"$new\"");
+        assert!(check.contains("codesign --verify --deep --strict \"$new\""));
+        assert!(check.contains("certificate leaf[subject.OU] = \"5ZX3P79WQZ\""));
+        assert!(check.contains("spctl --assess --type execute \"$new\""));
+    }
 
     #[test]
     fn compares_versions() {

@@ -11,6 +11,9 @@ on:
     paths-ignore: ["docs/**", "**.md"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -22,14 +25,15 @@ jobs:
     env:
       CEF_PATH: ${{ github.workspace }}/../cef
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
           targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Cache CEF binaries
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ github.workspace }}/../cef
           key: cef-aarch64-apple-darwin-${{ hashFiles('Cargo.lock') }}
@@ -44,6 +48,14 @@ jobs:
             CARGO_TARGET_DIR=target/xcheck cargo clippy --lib --tests --target "$target" --features cef/dox -- -D warnings
           done
 
+  audit:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --deny warnings
+
+  # Unsigned: CI builds never see the signing secrets.
   build:
     uses: ./.github/workflows/build.yml
-    secrets: inherit

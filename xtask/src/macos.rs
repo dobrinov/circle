@@ -5,7 +5,7 @@ use crate::{
     APP_NAME, BIN_NAME, BUNDLE_ID, Options, build_mcp, cargo_build, copy_dir, reset_dir, root, run,
     version,
 };
-use anyhow::Result;
+use anyhow::{Result, bail};
 use plist::{Dictionary, Value};
 use std::{
     env, fs,
@@ -14,6 +14,7 @@ use std::{
 };
 
 const FRAMEWORK: &str = "Chromium Embedded Framework.framework";
+const FRAMEWORK_BINARY: &str = "Chromium Embedded Framework";
 const HELPERS: &[(&str, &str)] = &[
     ("", "helper"),
     (" (GPU)", "helper.gpu"),
@@ -110,6 +111,34 @@ fn write_app(
     Ok(())
 }
 
+/// The keychain item that holds the key encrypting cookies and saved data.
+/// Chromium names it "Chromium Safe Storage", which every Chromium-based
+/// app and test browser shares; Circle gets its own (same length, so the
+/// name can be swapped in place before the framework is signed).
+const KEYCHAIN_ITEM: (&[u8], &[u8]) = (b"Chromium Safe Storage\0", b"Circle Cookie Storage\0");
+
+fn own_keychain_item(binary: &Path) -> Result<()> {
+    let (from, to) = KEYCHAIN_ITEM;
+    assert_eq!(from.len(), to.len());
+    let mut bytes = fs::read(binary)?;
+    let found: Vec<usize> = bytes
+        .windows(from.len())
+        .enumerate()
+        .filter(|(_, w)| *w == from)
+        .map(|(i, _)| i)
+        .collect();
+    let [at] = found[..] else {
+        bail!(
+            "expected the keychain name once in {}, found it {} times (did CEF change?)",
+            binary.display(),
+            found.len()
+        );
+    };
+    bytes[at..at + to.len()].copy_from_slice(to);
+    fs::write(binary, bytes)?;
+    Ok(())
+}
+
 fn sign(path: &Path, identity: &str, entitlements: Option<&Path>) -> Result<()> {
     let mut cmd = Command::new("codesign");
     cmd.args(["--force", "--sign", identity]);
@@ -147,6 +176,7 @@ pub fn bundle(options: &Options) -> Result<PathBuf> {
 
     let frameworks = app.join("Contents/Frameworks");
     copy_dir(&cef.join(FRAMEWORK), &frameworks.join(FRAMEWORK))?;
+    own_keychain_item(&frameworks.join(FRAMEWORK).join(FRAMEWORK_BINARY))?;
     for (suffix, id) in HELPERS {
         let name = format!("{APP_NAME} Helper{suffix}");
         write_app(
@@ -170,13 +200,19 @@ pub fn bundle(options: &Options) -> Result<PathBuf> {
     }
     sign(&framework, &identity, None)?;
     sign(&mcp, &identity, None)?;
+    // Each process gets only the exceptions Chrome gives it: JIT for the
+    // renderer and GPU, the plugin's for plugins, none for the rest (nor
+    // for the app, which holds the camera, microphone and location).
     for (suffix, _) in HELPERS {
         let helper = frameworks.join(format!("{APP_NAME} Helper{suffix}.app"));
         let plist = match *suffix {
-            " (Renderer)" | " (GPU)" | " (Plugin)" => "helper-renderer.entitlements",
-            _ => "helper.entitlements",
+            " (Renderer)" => Some("helper-renderer.entitlements"),
+            " (GPU)" => Some("helper-gpu.entitlements"),
+            " (Plugin)" => Some("helper-plugin.entitlements"),
+            _ => None,
         };
-        sign(&helper, &identity, Some(&entitlements.join(plist)))?;
+        let plist = plist.map(|p| entitlements.join(p));
+        sign(&helper, &identity, plist.as_deref())?;
     }
     sign(
         &app,

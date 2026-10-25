@@ -7,6 +7,31 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+### Security
+
+- Updates install on macOS only if they're signed by Circle's developer and
+  notarized; the updater no longer bypasses Gatekeeper. Downloads are HTTPS
+  only, and a downloaded update is rechecked before it installs.
+- Agents can only open and drive web pages (not local files or Circle's own
+  pages), can never reach fap-mode tabs, and can't use browser-wide CDP
+  commands. Turning agent control off disconnects them, and each time it's
+  turned on there's a new token.
+- Circle's own views can't be navigated to a website (e.g. by dropping a
+  link on the sidebar), and its pages run only their own scripts.
+- Cookies on macOS are encrypted with Circle's own keychain key instead of
+  the one all Chromium-based apps share. *You'll be signed out of websites
+  once after updating.*
+- Files that run when opened (`.app`, `.pkg`, `.command`, `.exe`, scripts…)
+  are saved only after you confirm them, pages can't flood Downloads, and
+  pop-ups need a click.
+- Fap mode: tabs opened from it stay in it, what you allowed outside it
+  doesn't apply inside, nothing from it reaches bug reports or history, and
+  windows it opens are hidden from screen capture too.
+- `javascript:` addresses are searched for instead of run, and the search
+  engine must be an http(s) address.
+- Bug reports go to GitHub through the clipboard, not the address bar.
+- Tighter macOS entitlements, matching Chrome's.
+
 ### Added
 
 - *What's new*: after an update, Circle shows the release notes of the new

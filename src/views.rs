@@ -95,7 +95,7 @@ pub fn open_dev_tools_window(url: &str, page_title: &str) {
     } else {
         format!("Developer Tools – {page_title}")
     };
-    let mut delegate = PopupWindowDelegate::new(view, (1100, 760), title);
+    let mut delegate = PopupWindowDelegate::new(view, (1100, 760), title, false);
     window_create_top_level(Some(&mut delegate));
 }
 
@@ -162,7 +162,12 @@ wrap_browser_view_delegate! {
             };
             // DevTools needs room; script popups (sign-in flows) stay small.
             let size = if is_devtools != 0 { (1100, 760) } else { (520, 680) };
-            let mut delegate = PopupWindowDelegate::new(popup.clone(), size, String::new());
+            // A window opened from fap mode hides from screen capture too.
+            let private = match self.role {
+                Role::Tab(tab) => controller::tab_is_private(tab),
+                _ => false,
+            };
+            let mut delegate = PopupWindowDelegate::new(popup.clone(), size, String::new(), private);
             window_create_top_level(Some(&mut delegate));
             1
         }
@@ -293,6 +298,7 @@ wrap_window_delegate! {
         browser_view: BrowserView,
         size: (c_int, c_int),
         title: String,
+        private: bool,
     }
 
     impl ViewDelegate {
@@ -315,6 +321,10 @@ wrap_window_delegate! {
                 window.set_title(Some(&CefString::from(self.title.as_str())));
             }
             window.add_child_view(Some(&mut View::from(&self.browser_view)));
+            #[cfg(target_os = "macos")]
+            if self.private {
+                crate::mac::set_capture_hidden(window, true);
+            }
             window.show();
             self.browser_view.request_focus();
         }

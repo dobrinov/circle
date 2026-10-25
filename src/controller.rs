@@ -428,6 +428,7 @@ pub enum Cmd {
     ShowPalette(u64),
     /// Something for the bug report log, from a browser callback.
     BugLog {
+        tab: Option<TabId>,
         kind: &'static str,
         text: String,
         url: Option<String>,
@@ -972,11 +973,13 @@ impl Controller {
                 self.changed();
             }
             Cmd::Url(id, url) => {
-                if !self.session.is_private_tab(id) {
+                // Not for tabs already gone (fap mode may just have ended).
+                let private = self.session.tab(id).is_none() || self.session.is_private_tab(id);
+                if !private {
                     crate::history::record(&url, "", now());
                 }
                 let mut local_changed = false;
-                if self.bug.is_some() {
+                if self.bug.is_some() && !private {
                     self.bug_log("navigate", "", Some(&url));
                 }
                 if let Some(tab) = self.session.tab_mut(id) {
@@ -1085,7 +1088,17 @@ impl Controller {
                     self.show_palette();
                 }
             }
-            Cmd::BugLog { kind, text, url } => self.bug_log(kind, &text, url.as_deref()),
+            Cmd::BugLog {
+                tab,
+                kind,
+                text,
+                url,
+            } => {
+                // Fap mode stays out of bug reports.
+                if !tab.is_some_and(|t| self.session.is_private_tab(t)) {
+                    self.bug_log(kind, &text, url.as_deref());
+                }
+            }
             Cmd::UpdateStatus(status) => {
                 self.update_checking = false;
                 self.update_status = Some(status);
@@ -1379,7 +1392,9 @@ impl Controller {
                 if let Some(appearance) = appearance {
                     self.handle_action(Action::Appearance(appearance));
                 }
-                if let Some(url) = search_url.filter(|u| u.contains("%s")) {
+                if let Some(url) = search_url.filter(|u| {
+                    u.contains("%s") && (u.starts_with("https://") || u.starts_with("http://"))
+                }) {
                     self.session.search_url = url;
                 }
                 if let Some(hours) = archive_after_hours {
@@ -1431,8 +1446,13 @@ impl Controller {
             UiCmd::Permission { id, allow } => {
                 if let Some(i) = self.prompts.iter().position(|p| p.id == id) {
                     let prompt = self.prompts.remove(i);
-                    // Private tabs get the permission once, not remembered.
-                    if allow && !self.session.is_private_tab(prompt.request.tab) {
+                    // Private tabs get the permission once, not remembered,
+                    // and so do pages without a real origin (local files
+                    // all share "null").
+                    if allow
+                        && !self.session.is_private_tab(prompt.request.tab)
+                        && is_web_url(&prompt.request.origin)
+                    {
                         *self
                             .session
                             .grants
@@ -2022,6 +2042,7 @@ impl Controller {
         }
         if self.bug.is_some()
             && self.session.active_tab() != Some(id)
+            && !self.session.is_private_tab(id)
             && let Some(tab) = self.session.tab(id)
         {
             let (title, url) = (tab.display_title().to_owned(), tab.url.clone());
@@ -2046,8 +2067,24 @@ impl Controller {
     fn open_tab(&mut self, url: &str, foreground: bool, opener: Option<TabId>) -> TabId {
         let tab = self.session.new_tab(url);
         let id = tab.id;
+        // A tab opened from a page stays on the same side of fap mode as its
+        // opener, whichever space is showing by then.
+        let active = self.session.active_space;
+        let space_index = match opener.map(|o| self.session.is_private_tab(o)) {
+            Some(true) => self
+                .session
+                .spaces
+                .iter()
+                .position(|s| s.private)
+                .unwrap_or(active),
+            Some(false) if self.session.space().private => self
+                .session
+                .space_index(self.last_normal_space)
+                .unwrap_or(0),
+            _ => active,
+        };
         // New tabs go to the top of "today", or right below their opener.
-        let space = self.session.space_mut();
+        let space = &mut self.session.spaces[space_index];
         let index = opener
             .and_then(|o| space.tabs.iter().position(|t| t.id == o))
             .map_or(0, |i| i + 1);
@@ -2085,6 +2122,7 @@ impl Controller {
             return;
         };
         if self.bug.is_some()
+            && !self.session.is_private_tab(id)
             && let Some(tab) = self.session.tab(id)
         {
             let url = tab.url.clone();
@@ -2307,10 +2345,11 @@ impl Controller {
     }
 
     fn updates_dir(&self) -> PathBuf {
+        // The session always lives in the profile folder.
         self.session_path
             .parent()
-            .map(|p| p.join("updates"))
-            .unwrap_or_default()
+            .unwrap_or_else(|| Path::new("/nonexistent"))
+            .join("updates")
     }
 
     fn update_json(&self) -> Value {
@@ -2587,12 +2626,16 @@ impl Controller {
     }
 
     fn request_permission(&mut self, request: PermissionRequest) {
-        let granted = self
-            .session
-            .grants
-            .get(&request.grant_key())
-            .copied()
-            .unwrap_or(0);
+        // Fap mode never uses what was allowed outside it.
+        let granted = if self.session.is_private_tab(request.tab) {
+            0
+        } else {
+            self.session
+                .grants
+                .get(&request.grant_key())
+                .copied()
+                .unwrap_or(0)
+        };
         if request.mask != 0 && request.mask & !granted == 0 {
             request.finish(true);
             return;
@@ -3225,8 +3268,14 @@ impl Controller {
     }
 }
 
+/// Runs `code` in one of Circle's own pages, never in anything else the
+/// view might show.
 fn run_js(view: &BrowserView, code: &str) {
-    if let Some(frame) = view.browser().and_then(|b| b.main_frame()) {
+    if let Some(frame) = view.browser().and_then(|b| b.main_frame())
+        && CefString::from(&frame.url())
+            .to_string()
+            .starts_with("circle://ui/")
+    {
         frame.execute_java_script(
             Some(&CefString::from(code)),
             Some(&CefString::from("circle://ui/")),
@@ -3282,11 +3331,16 @@ pub struct TabSummary {
     pub url: String,
 }
 
-pub fn tab_summaries() -> Vec<TabSummary> {
+/// Live, non-private tabs for CDP clients; for agents only web pages.
+pub fn tab_summaries(agent: bool) -> Vec<TabSummary> {
     with_controller(|c| {
         c.session
             .all_tabs()
-            .filter(|t| c.live.contains_key(&t.id) && !c.session.is_private_tab(t.id))
+            .filter(|t| {
+                c.live.contains_key(&t.id)
+                    && !c.session.is_private_tab(t.id)
+                    && (!agent || is_web_url(&t.url))
+            })
             .map(|t| TabSummary {
                 id: t.id,
                 title: t.display_title().to_owned(),
@@ -3336,17 +3390,40 @@ pub fn agent_active_tab() -> Option<TabId> {
     with_controller(|c| c.session.active_tab()).flatten()
 }
 
-pub fn agent_open(input: &str, background: bool) -> TabId {
-    with_controller(|c| {
-        let url = c.session.resolve_input(input);
-        c.open_tab(&url, !background, None)
-    })
-    .unwrap_or_default()
+/// Whether a tab is in fap mode (assumed so if the browser is busy).
+pub fn tab_is_private(tab: TabId) -> bool {
+    with_controller(|c| c.session.is_private_tab(tab)).unwrap_or(true)
 }
 
-/// Whether agents may use a tab: never one in the private space.
+/// Pages agents may open and drive: the web, not local files or Circle's
+/// own pages.
+pub fn is_web_url(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://") || lower == "about:blank"
+}
+
+pub fn agent_open(input: &str, background: bool) -> Result<TabId, String> {
+    with_controller(|c| {
+        // New tabs go to the active space; never let an agent into fap mode.
+        if c.session.space().private {
+            return Err("Circle is in fap mode, where agents can't open tabs".to_owned());
+        }
+        let url = c.session.resolve_input(input);
+        if !is_web_url(&url) {
+            return Err("agents can only open http and https pages".to_owned());
+        }
+        Ok(c.open_tab(&url, !background, None))
+    })
+    .unwrap_or_else(|| Err("the browser is busy".to_owned()))
+}
+
+/// Whether agents may use a tab: never one in the private space, nor one
+/// showing Circle's own pages or local files.
 pub fn agent_may_use(tab: TabId) -> bool {
-    with_controller(|c| !c.session.is_private_tab(tab)).unwrap_or(false)
+    with_controller(|c| {
+        !c.session.is_private_tab(tab) && c.session.tab(tab).is_some_and(|t| is_web_url(&t.url))
+    })
+    .unwrap_or(false)
 }
 
 pub fn agent_activate(tab: TabId) {
@@ -3365,14 +3442,19 @@ pub fn agent_close(tab: TabId) {
     });
 }
 
-pub fn agent_navigate(tab: TabId, input: &str) {
+pub fn agent_navigate(tab: TabId, input: &str) -> Result<(), String> {
     with_controller(|c| {
-        if c.session.is_private_tab(tab) {
-            return;
+        if c.session.is_private_tab(tab) || c.session.tab(tab).is_none() {
+            return Err(format!("no tab {tab}"));
         }
         let url = c.session.resolve_input(input);
+        if !is_web_url(&url) {
+            return Err("agents can only open http and https pages".to_owned());
+        }
         c.navigate(tab, &url);
-    });
+        Ok(())
+    })
+    .unwrap_or_else(|| Err("the browser is busy".to_owned()))
 }
 
 pub fn agent_ensure_loaded(tab: TabId) -> Result<(), String> {
@@ -3402,6 +3484,28 @@ pub fn note_agent_activity() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agents_get_only_web_pages() {
+        for url in [
+            "https://example.com",
+            "http://localhost:3000/x",
+            "about:blank",
+            "HTTPS://A.B",
+        ] {
+            assert!(is_web_url(url), "{url}");
+        }
+        for url in [
+            "file:///etc/passwd",
+            "circle://ui/settings.html",
+            "chrome://version",
+            "data:text/html,x",
+            "javascript:1",
+            "view-source:https://a.b",
+        ] {
+            assert!(!is_web_url(url), "{url}");
+        }
+    }
 
     #[test]
     fn local_urls() {

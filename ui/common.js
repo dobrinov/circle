@@ -78,12 +78,14 @@ const letterIcon = (label, size) =>
 // A favicon, falling back to a colored letter when it is missing or broken.
 circle.icon = (tab, size = 16) => {
   const label = circle.host(tab.url).replace(/^circle:\/\//, "") || circle.title(tab);
-  // Pages that don't declare an icon usually still serve /favicon.ico.
+  // Pages that don't declare an icon usually still serve /favicon.ico. Only
+  // open tabs guess it: History and Spotlight would otherwise ask every site
+  // you ever visited, telling them each time.
   let src = tab.favicon;
   // Circle's pages are a secure context: plain-http icons are blocked
   // without an error event, which would leave a blank space.
   if (src && src.startsWith("http:")) src = "";
-  if (!src && /^https:/.test(tab.url || "")) {
+  if (!src && tab.live && /^https:/.test(tab.url || "")) {
     try {
       src = `${new URL(tab.url).origin}/favicon.ico`;
     } catch {}

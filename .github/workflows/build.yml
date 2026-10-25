@@ -1,5 +1,7 @@
 # Builds, tests and packages Circle on every supported OS. Called by ci.yml
-# (pushes and pull requests), release.yml (version tags) and nightly.yml.
+# (pushes and pull requests), release.yml (version tags), nightly.yml and
+# signed-check.yml. Only release and signed-check builds sign: everything
+# else runs without the signing secrets.
 name: Build
 
 on:
@@ -9,10 +11,13 @@ on:
         description: How long to keep the packaged artifacts.
         type: number
         default: 14
-      require-signing:
-        description: Fail on macOS unless the Developer ID secrets are set (releases).
+      sign:
+        description: Sign and notarize the macOS app (needs the Developer ID secrets).
         type: boolean
         default: false
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -46,22 +51,20 @@ jobs:
             test: true
     env:
       CEF_PATH: ${{ github.workspace }}/../cef
-      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-      # Set when notarization is possible (only checked for being non-empty).
-      NOTARIZE: ${{ secrets.APPLE_APP_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: ${{ matrix.target }}
 
       - name: Cache CEF binaries
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ${{ github.workspace }}/../cef
           key: cef-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
@@ -89,26 +92,34 @@ jobs:
             choco install innosetup -y --no-progress
           }
 
-      - name: Require signing secrets (macOS releases)
-        if: runner.os == 'macOS' && inputs.require-signing && (env.MACOS_CERTIFICATE == '' || env.NOTARIZE == '')
+      - name: Require signing secrets (macOS)
+        if: runner.os == 'macOS' && inputs.sign
+        env:
+          HAVE_CERT: ${{ secrets.MACOS_CERTIFICATE != '' }}
+          HAVE_NOTARY: ${{ secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_ID != '' }}
         run: |
-          echo "::error::Releases must be signed and notarized: add the MACOS_* and APPLE_* secrets (see RELEASING.md)"
-          exit 1
+          if [ "$HAVE_CERT" != true ] || [ "$HAVE_NOTARY" != true ]; then
+            echo "::error::Signed builds need the MACOS_* and APPLE_* secrets (see RELEASING.md)"
+            exit 1
+          fi
 
       - name: Import signing certificate (macOS)
-        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != ''
+        if: runner.os == 'macOS' && inputs.sign
         env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
-          echo "$MACOS_CERTIFICATE" | base64 --decode > cert.p12
-          security create-keychain -p ci build.keychain
+          # A throwaway keychain with a random password, deleted after the job.
+          password="$(openssl rand -hex 24)"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" build.keychain
           security default-keychain -s build.keychain
-          security unlock-keychain -p ci build.keychain
-          security import cert.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          security unlock-keychain -p "$password" build.keychain
+          security import "$RUNNER_TEMP/cert.p12" -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" build.keychain >/dev/null
           # codesign only finds identities in keychains on the search list.
           security list-keychains -d user -s build.keychain login.keychain
-          rm cert.p12
+          rm "$RUNNER_TEMP/cert.p12"
 
       - name: Unit tests
         if: matrix.test
@@ -135,36 +146,63 @@ jobs:
 
       - name: Build and package
         env:
-          CIRCLE_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CIRCLE_CODESIGN_IDENTITY: ${{ inputs.sign && secrets.MACOS_CODESIGN_IDENTITY || '' }}
+          APPLE_ID: ${{ inputs.sign && secrets.APPLE_ID || '' }}
+          APPLE_APP_PASSWORD: ${{ inputs.sign && secrets.APPLE_APP_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ inputs.sign && secrets.APPLE_TEAM_ID || '' }}
         shell: bash
         run: |
-          # Empty secrets must not override the ad-hoc defaults.
+          # Unsigned builds are signed ad hoc.
           [ -z "$CIRCLE_CODESIGN_IDENTITY" ] && unset CIRCLE_CODESIGN_IDENTITY
           [ -z "$APPLE_ID" ] && unset APPLE_ID
           cargo xtask dist --target ${{ matrix.target }}
 
       - name: Check signature and notarization (macOS)
-        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != ''
+        if: runner.os == 'macOS' && inputs.sign
         run: |
           for dmg in dist/*.dmg; do
             mount="$(mktemp -d)"
             hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" >/dev/null
             codesign --verify --deep --strict --verbose=2 "$mount/Circle.app"
-            # Gatekeeper accepts only notarized builds.
-            if [ -n "$NOTARIZE" ]; then
-              spctl --assess --type execute --verbose=2 "$mount/Circle.app"
-            fi
+            codesign --verify -R='anchor apple generic and certificate leaf[subject.OU] = "5ZX3P79WQZ"' "$mount/Circle.app"
+            spctl --assess --type execute --verbose=2 "$mount/Circle.app"
             hdiutil detach "$mount" >/dev/null
-            if [ -n "$NOTARIZE" ]; then
-              xcrun stapler validate "$dmg"
-              spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
-            fi
+            xcrun stapler validate "$dmg"
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
           done
 
-      - uses: actions/upload-artifact@v4
+      # The signed app runs under the hardened runtime with only the
+      # entitlements in packaging/macos: start it and check a page renders.
+      - name: Launch the signed app (macOS)
+        if: matrix.target == 'aarch64-apple-darwin' && inputs.sign
+        run: |
+          dmg="$(ls dist/*.dmg | head -1)"
+          mount="$(mktemp -d)"; profile="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" >/dev/null
+          ditto "$mount/Circle.app" "$RUNNER_TEMP/Circle.app"
+          hdiutil detach "$mount" >/dev/null
+          CIRCLE_PROFILE_DIR="$profile" "$RUNNER_TEMP/Circle.app/Contents/MacOS/Circle" \
+            --remote-debugging-port=9333 "data:text/html,<title>ok</title><script>document.title='js-'+(6*7)</script>" &
+          app=$!
+          for _ in $(seq 60); do
+            curl -s http://127.0.0.1:9333/json/list | grep -q '"js-42"' && break
+            sleep 1
+          done
+          list="$(curl -s http://127.0.0.1:9333/json/list)"
+          kill "$app" 2>/dev/null || true
+          if ! echo "$list" | grep -q '"js-42"'; then
+            echo "::error::The signed app didn't run JavaScript in a page"
+            echo "$list"
+            ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i circle || true
+            exit 1
+          fi
+          echo "Pages render and run JavaScript."
+
+      - name: Remove the signing keychain (macOS)
+        if: always() && runner.os == 'macOS' && inputs.sign
+        run: security delete-keychain build.keychain || true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: circle-${{ matrix.target }}
           if-no-files-found: error

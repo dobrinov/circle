@@ -557,6 +557,20 @@ impl Session {
         if input.is_empty() {
             return START_URL.to_owned();
         }
+        // Script addresses would run in whatever page is showing (tricks
+        // that ask people to paste one); they're searched for instead.
+        let scheme = input
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if input.contains(':') && matches!(scheme.as_str(), "javascript" | "vbscript") {
+            return self.search_url.replace(
+                "%s",
+                &url::form_urlencoded::byte_serialize(input.as_bytes()).collect::<String>(),
+            );
+        }
         let has_scheme = input.contains("://")
             || [
                 "about:",
@@ -595,6 +609,22 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn script_addresses_are_searched_not_run() {
+        let s = Session::default();
+        for input in [
+            "javascript:alert(1)",
+            "JavaScript://%0aalert(1)",
+            " javascript:void(0)",
+        ] {
+            let url = s.resolve_input(input);
+            assert!(
+                url.starts_with(&s.search_url[..s.search_url.find("%s").unwrap()]),
+                "{input} → {url}"
+            );
+        }
+    }
 
     #[test]
     fn resolves_urls_and_searches() {

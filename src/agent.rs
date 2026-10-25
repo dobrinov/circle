@@ -76,7 +76,7 @@ pub fn handle(command: &str, args: &Value) -> Result<Value, String> {
                 .get("background")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            let tab = call_on_ui(move || controller::agent_open(&url, background))?;
+            let tab = call_on_ui(move || controller::agent_open(&url, background))??;
             if !background {
                 wait_for_load(tab)?;
             }
@@ -95,7 +95,7 @@ pub fn handle(command: &str, args: &Value) -> Result<Value, String> {
         "navigate" => {
             let tab = tab_arg(args)?;
             let url = str_arg(args, "url")?;
-            call_on_ui(move || controller::agent_navigate(tab, &url))?;
+            call_on_ui(move || controller::agent_navigate(tab, &url))??;
             wait_for_load(tab)?;
             page_info(tab)
         }

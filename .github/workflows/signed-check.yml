@@ -1,0 +1,26 @@
+# A signed, notarized build of the current commit that isn't published: run
+# it by hand to check signing changes (entitlements, the bundle) before a
+# release. Its packages are kept for a few days as artifacts.
+name: Signed build check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  approve:
+    name: Approve signed build
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - run: echo "Approved"
+
+  build:
+    needs: approve
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      retention-days: 3
+      sign: true
