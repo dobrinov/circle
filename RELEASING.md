@@ -50,10 +50,8 @@ All three crates (`circle`, `circle-mcp`, `xtask`) share one version.
    `xtask release` sets the version everywhere, moves the Unreleased notes
    into a dated `0.2.0` section, refreshes `Cargo.lock`, commits
    "Release v0.2.0" and tags `v0.2.0`. It pushes nothing.
-4. The **Release** workflow waits for your approval: open the run on
-   GitHub › *Review deployments* › *release* › *Approve*. Nothing builds with
-   the signing secrets, or publishes, before that. It then checks that the
-   tag matches `Cargo.toml` and `CHANGELOG.md`, builds every platform, and
+4. The **Release** workflow runs in the *release* environment, which only
+   `v*` tags and `main` may use. It checks that the tag matches `Cargo.toml` and `CHANGELOG.md`, builds every platform, and
    publishes the release with the changelog section, a download table and
    `SHA256SUMS.txt`.
 
@@ -61,7 +59,7 @@ Only repository admins can push `v*` tags (the *Release tags* ruleset).
 
 To check a signing change (entitlements, the bundle) without releasing,
 run **Signed build check** (Actions › Signed build check › *Run workflow*,
-or `gh workflow run signed-check.yml`). It needs the same approval, builds,
+or `gh workflow run signed-check.yml`). It builds,
 signs and notarizes, then starts the signed app and checks that a page
 renders and runs JavaScript.
 
@@ -75,8 +73,7 @@ Unsigned builds work, but macOS and Windows warn about them.
 **macOS.** Releases must be signed with a Developer ID and notarized: the
 Release workflow fails on macOS without these secrets, so nothing ships that
 macOS refuses to open. CI and nightly builds never get the secrets and are
-signed ad hoc; only release and signed-check builds, after your approval,
-see them, and only in the steps that sign. Add them under Settings › Secrets
+signed ad hoc; only release and signed-check builds see them, and only in the steps that sign. Add them under Settings › Secrets
 and variables › Actions:
 
 | Secret | Value |

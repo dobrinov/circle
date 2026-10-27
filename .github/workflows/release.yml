@@ -12,10 +12,10 @@ permissions:
   contents: read
 
 jobs:
-  # Nothing builds with the signing secrets, or publishes, until the
-  # maintainer approves the run (the "release" environment requires it).
+  # The "release" environment: only v* tags and main may use it. Add a
+  # required reviewer there to approve each release by hand.
   approve:
-    name: Approve release
+    name: Release environment
     runs-on: ubuntu-latest
     environment: release
     steps:

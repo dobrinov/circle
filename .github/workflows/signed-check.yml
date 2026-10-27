@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   approve:
-    name: Approve signed build
+    name: Release environment
     runs-on: ubuntu-latest
     environment: release
     steps:
