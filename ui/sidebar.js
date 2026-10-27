@@ -228,14 +228,18 @@
 
     // A new version of Circle.
     const update = state.update?.status;
+    const card = (line, action = "") =>
+      `<span class="mark" aria-hidden="true"></span><span class="grow"><b>Circle ${circle.esc(update.version)}</b><span class="line">${line}</span></span>${action}`;
     $("update").innerHTML =
       update?.status === "ready"
-        ? `<svg class="state" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 11.8 4"/><path d="M13 1.8v3.4H9.6"/></svg><span class="grow"><b>Circle ${circle.esc(update.version)}</b> is ready</span><button class="primary" data-update-restart title="Restart Circle to finish updating">Restart</button>`
+        ? card("Restart to finish updating", `<button data-update-restart title="Restart Circle to finish updating">Restart</button>`)
         : update?.status === "downloading"
-          ? `<svg class="state" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 11.8 4"/><path d="M13 1.8v3.4H9.6"/></svg><span class="grow">Updating to <b>${circle.esc(update.version)}</b> <span class="meta">${update.percent}%</span><div class="bar"><i style="width:${update.percent}%"></i></div></span>`
-          : update?.status === "available"
-            ? `<svg class="state" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 11.8 4"/><path d="M13 1.8v3.4H9.6"/></svg><span class="grow"><b>Circle ${circle.esc(update.version)}</b> is available</span><button data-update-page="${circle.esc(update.url)}">Download</button>`
-            : "";
+          ? card(`Downloading… ${update.percent}%<span class="bar"><i style="width:${update.percent}%"></i></span>`)
+          : update?.status === "available" && update.installable
+            ? card("A new version is out", `<button data-update-install>Update</button>`)
+            : update?.status === "available"
+              ? card("Download it to update", `<button data-update-page="${circle.esc(update.url)}">Download</button>`)
+              : "";
 
     // Spaces
     $("spaces").innerHTML = state.spaces
@@ -284,6 +288,7 @@
     if (event.target.closest("[data-clear-today]")) return circle.action("clear_today");
     if (event.target.closest("#dlprog")) return $("library-btn").click();
     if (event.target.closest("[data-update-restart]")) return circle.action("restart_to_update");
+    if (event.target.closest("[data-update-install]")) return circle.action("check_for_updates");
     const updatePage = event.target.closest("[data-update-page]");
     if (updatePage) return circle.send({ cmd: "navigate", input: updatePage.dataset.updatePage, new_tab: true });
     if (event.target.closest("[data-record-stop]")) return circle.action("stop_recording");

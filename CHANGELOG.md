@@ -7,6 +7,17 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+### Changed
+
+- The update card in the sidebar is easier to read, on any space colour.
+  With automatic updates off, it offers *Update* instead of a download.
+
+### Fixed
+
+- Circle couldn't update itself on a Mac account that isn't an
+  administrator (it offered a download instead). It now updates the app in
+  place.
+
 ## [0.1.2] - 2026-10-27
 
 ### Security

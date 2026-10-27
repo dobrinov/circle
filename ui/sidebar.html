@@ -602,20 +602,29 @@
       #update:not(:empty) {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
         margin-top: 6px;
-        padding: 8px 8px 8px 12px;
+        padding: 10px 10px 10px 12px;
         border-radius: var(--radius);
         background: var(--active);
         color: var(--active-fg);
         box-shadow: var(--shadow);
         font-size: 12px;
+        line-height: 1.3;
       }
-      #update .grow { flex: 1; min-width: 0; }
-      #update b { font-weight: 600; }
-      #update .bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 5px; overflow: hidden; }
-      #update .bar i { display: block; height: 100%; background: var(--accent); }
-      #update button { padding: 4px 10px; border-radius: 6px; background: var(--accent); color: white; font-weight: 600; flex: none; }
+      /* The logo's ring. */
+      #update .mark { width: 22px; height: 22px; flex: none; border-radius: 50%;
+        background: conic-gradient(#4A6CFF, #2A9BA3 33.3%, #45C75B 66.6%, #4A6CFF);
+        -webkit-mask: radial-gradient(farthest-side, transparent 52%, #000 56%);
+        mask: radial-gradient(farthest-side, transparent 52%, #000 56%); }
+      #update .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+      #update b { font-weight: 650; font-size: 12.5px; }
+      #update .line { color: var(--muted); }
+      #update .bar { display: block; height: 3px; border-radius: 2px; background: var(--line); margin-top: 5px; overflow: hidden; }
+      #update .bar i { display: block; height: 100%; background: currentColor; }
+      /* Ink on the card in light mode, light on dark: readable on any space. */
+      #tray #update button { height: 28px; padding: 0 12px; border-radius: 7px; background: var(--active-fg); color: var(--bg); font-weight: 650; flex: none; }
+      #tray #update button:hover { opacity: 0.88; }
 
       /* The copy of the sidebar that peeks out over the page. */
       body.peek { box-shadow: inset -1px 0 0 var(--line); }

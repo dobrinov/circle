@@ -42,10 +42,12 @@ pub enum Status {
     UpToDate {
         checked: u64,
     },
-    /// A newer version that this install can't update to by itself.
+    /// A newer version, not downloaded: automatic updates are off, or this
+    /// install can't update itself (`installable` false: download it).
     Available {
         version: String,
         url: String,
+        installable: bool,
     },
     Downloading {
         version: String,
@@ -177,12 +179,14 @@ fn check_and_fetch(dir: &Path, download: bool) -> Result<Status, String> {
         return Ok(Status::Available {
             version,
             url: release.html_url,
+            installable: false,
         });
     };
     if !download {
         return Ok(Status::Available {
             version,
             url: release.html_url,
+            installable: true,
         });
     }
 
@@ -437,10 +441,26 @@ fn can_self_update() -> bool {
     match std::env::consts::OS {
         // The installer takes care of permissions.
         "windows" => true,
-        // The .app is replaced, so its folder must be writable.
-        "macos" => location.parent().is_some_and(probe_writable),
+        // The .app is replaced, which needs its folder to be writable; or,
+        // where it isn't (/Applications for a standard account), the .app's
+        // contents are, if the .app is ours.
+        "macos" => location.parent().is_some_and(probe_writable) || owns_bundle(&location),
         _ => probe_writable(&location),
     }
+}
+
+/// Whether this user owns the .app and its Contents, so it can swap them.
+#[cfg(unix)]
+fn owns_bundle(app: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let uid = unsafe { libc::geteuid() };
+    let owned = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.uid() == uid);
+    owned(app) && owned(&app.join("Contents")) && probe_writable(app)
+}
+
+#[cfg(not(unix))]
+fn owns_bundle(_app: &Path) -> bool {
+    false
 }
 
 fn probe_writable(dir: &Path) -> bool {
@@ -485,9 +505,18 @@ pub fn install_on_exit(update: &Update, relaunch: bool) -> Result<(), String> {
                  hdiutil attach -nobrowse -readonly -mountpoint {m} {dmg} >/dev/null || exit 1\n\
                  new=$(ls -d {m}/*.app | head -1)\n\
                  if ! ( {check} ); then hdiutil detach {m} >/dev/null; exit 1; fi\n\
-                 rm -rf {app}.old\n\
-                 if mv {app} {app}.old; then\n\
-                 \x20 if ditto \"$new\" {app}; then rm -rf {app}.old; else rm -rf {app}; mv {app}.old {app}; fi\n\
+                 if [ -w {parent} ]; then\n\
+                 \x20 rm -rf {app}.old\n\
+                 \x20 if mv {app} {app}.old; then\n\
+                 \x20   if ditto \"$new\" {app}; then rm -rf {app}.old; else rm -rf {app}; mv {app}.old {app}; fi\n\
+                 \x20 fi\n\
+                 else\n\
+                 \x20 # The folder isn't writable (a standard account): swap the contents.\n\
+                 \x20 rm -rf {app}/Contents.old\n\
+                 \x20 if mv {app}/Contents {app}/Contents.old; then\n\
+                 \x20   if ditto \"$new/Contents\" {app}/Contents; then rm -rf {app}/Contents.old; else rm -rf {app}/Contents; mv {app}/Contents.old {app}/Contents; fi\n\
+                 \x20 fi\n\
+                 \x20 touch {app}\n\
                  fi\n\
                  xattr -dr com.apple.quarantine {app} 2>/dev/null\n\
                  hdiutil detach {m} >/dev/null\n\
@@ -496,6 +525,7 @@ pub fn install_on_exit(update: &Update, relaunch: bool) -> Result<(), String> {
                 m = quote(&mount),
                 dmg = quote(&update.file),
                 app = quote(&location),
+                parent = quote(location.parent().unwrap_or(Path::new("/"))),
                 relaunch = if relaunch {
                     format!("open -n {}", quote(&location))
                 } else {
