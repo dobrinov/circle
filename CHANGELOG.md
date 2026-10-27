@@ -7,6 +7,8 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-27
+
 ### Security
 
 - Updates install on macOS only if they're signed by Circle's developer and
