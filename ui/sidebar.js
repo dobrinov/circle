@@ -526,7 +526,7 @@
   // ----- space color --------------------------------------------------------
 
   const picker = $("picker");
-  const HUES = [0, 18, 32, 48, 95, 150, 175, 195, 215, 240, 262, 290];
+  const HUES = [0, 18, 32, 48, 95, 130, 160, 184, 205, 229, 262, 290];
 
   function showColorPicker(target) {
     picker.innerHTML = `<div class="swatches">${HUES.map(

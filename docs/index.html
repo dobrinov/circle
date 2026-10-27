@@ -14,7 +14,7 @@
 <meta property="og:image" content="https://dobrinov.github.io/circle/assets/og-logo.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The Circle logo: a glowing ring of blue, violet, pink and amber on a dark background">
+<meta property="og:image:alt" content="The Circle logo: a ring flowing from blue to teal to green on a dark tile">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Circle — the arc, completed">
 <meta name="twitter:description" content="The calm, sidebar-first browser. Spaces, Spotlight, split view and docked DevTools — open source, built in Rust on Chromium, and ready for AI agents.">
@@ -43,7 +43,7 @@
   --line: rgba(23, 19, 43, 0.1);
   --violet: #6A2DF0;
   --chip: #ECE6F8;
-  --ring: conic-gradient(from 140deg, #2F6BFF 0%, #7B3BFF 22%, #FF3D8B 48%, #FFB23F 66%, #FF3D8B 82%, #7B3BFF 92%, #2F6BFF 100%);
+  --ring: conic-gradient(#4A6CFF, #2A9BA3 33.3%, #45C75B 66.6%, #4A6CFF);
   --shadow: 0 1px 2px rgba(23, 19, 43, 0.06), 0 24px 60px rgba(42, 27, 94, 0.16);
   color-scheme: light;
 }
@@ -173,7 +173,7 @@ footer .brand img { width: 24px; height: 24px; }
 <header class="hero">
   <div class="halo" aria-hidden="true"></div>
   <div class="wrap">
-    <img class="icon" src="assets/icon.png" alt="Circle app icon: a glowing ring">
+    <img class="icon" src="assets/icon.png" alt="Circle app icon: a blue, teal and green ring">
     <h1>The arc, <span>completed.</span></h1>
     <p class="lead">Circle is a calm, sidebar-first browser built on Chromium and written in Rust. Your tabs live in a sidebar, organised into spaces, with everything else one keystroke away.</p>
     <div class="cta">
@@ -367,7 +367,6 @@ claude mcp add circle -- /opt/circle/circle-mcp
     <a href="https://github.com/dobrinov/circle">GitHub</a>
     <a href="https://github.com/dobrinov/circle/releases">Releases</a>
     <a href="https://github.com/dobrinov/circle/issues">Report a bug</a>
-    <span>Not affiliated with The Browser Company or Arc.</span>
   </div>
 </footer>
 

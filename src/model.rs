@@ -14,7 +14,9 @@ pub type TabId = u64;
 
 pub const START_URL: &str = "https://www.google.com/";
 const ARCHIVE_LIMIT: usize = 200;
-const SPACE_HUES: [u16; 8] = [262, 200, 340, 150, 28, 300, 180, 50];
+/// New spaces cycle through these; the first three are the logo's blue, teal
+/// and green.
+const SPACE_HUES: [u16; 8] = [229, 184, 130, 262, 340, 28, 300, 50];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Tab {

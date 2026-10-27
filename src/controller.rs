@@ -27,6 +27,7 @@ const PALETTE_URL: &str = "circle://ui/palette.html";
 const PEEK_URL: &str = "circle://ui/sidebar.html?peek";
 const RECORDER_URL: &str = "circle://ui/recorder.html";
 const RECBAR_URL: &str = "circle://ui/recbar.html";
+const SPLITTER_URL: &str = "circle://ui/splitter.html";
 /// How far the floating recording controls sit above the page's bottom edge.
 const RECBAR_MARGIN: c_int = 20;
 const UPDATE_EVERY_MS: i64 = 6 * 60 * 60 * 1000;
@@ -176,6 +177,14 @@ pub enum UiCmd {
     ClosePalette,
     PaletteHeight {
         height: c_int,
+    },
+    /// The drag handle between the pages and docked DevTools is being dragged.
+    DevtoolsGrip {
+        phase: String,
+        #[serde(default)]
+        dx: i32,
+        #[serde(default)]
+        dy: i32,
     },
     /// The floating recording controls' size, to fit their overlay to.
     RecbarSize {
@@ -703,6 +712,8 @@ pub struct Controller {
     recorder_ready: bool,
     /// Recording controls over the page, created on first use.
     recbar: Option<(BrowserView, Option<OverlayController>)>,
+    /// The drag handle over the gap next to docked DevTools, made on first use.
+    splitter: Option<(BrowserView, Option<OverlayController>)>,
     recbar_ready: bool,
     recbar_size: (c_int, c_int),
     /// A video recording waiting for the recorder page to load.
@@ -900,6 +911,7 @@ impl Controller {
             recorder: None,
             recorder_ready: false,
             recbar: None,
+            splitter: None,
             recbar_ready: false,
             recbar_size: (360, 48),
             pending_recording: None,
@@ -1168,7 +1180,7 @@ impl Controller {
                     _ => "right",
                 };
                 if let Some(view) = self.docked_devtools.get(&tab) {
-                    run_js(
+                    run_devtools_js(
                         view,
                         &format!("({})({})", client::DEVTOOLS_GRIP_JS, json!(side)),
                     );
@@ -1308,6 +1320,23 @@ impl Controller {
             }
             UiCmd::Action { action } => self.handle_action(action),
             UiCmd::ClosePalette => self.close_palette(),
+            UiCmd::DevtoolsGrip { phase, dx, dy } => {
+                use crate::client::GripDrag;
+                match phase.as_str() {
+                    "start" => self.drag_devtools(GripDrag::Start),
+                    "move" => self.drag_devtools(GripDrag::Move(dx, dy)),
+                    "end" => {
+                        self.drag_devtools(GripDrag::End);
+                        // Give the keyboard back to the page.
+                        if let Some(live) =
+                            self.session.active_tab().and_then(|id| self.live.get(&id))
+                        {
+                            live.view.request_focus();
+                        }
+                    }
+                    _ => {}
+                }
+            }
             UiCmd::RecbarSize { width, height } => {
                 self.recbar_size = (width.clamp(80, 900), height.clamp(24, 300));
                 self.place_recbar();
@@ -1981,6 +2010,7 @@ impl Controller {
 
     /// Rounds the corners of the visible pages (macOS).
     fn update_page_corners(&self) {
+        self.place_splitter();
         #[cfg(target_os = "macos")]
         if let Some(window) = &self.window {
             let content = self.content.bounds();
@@ -2271,6 +2301,16 @@ impl Controller {
         } else {
             let view = views::create_browser_view(Role::DevTools(tab), &url, 0xFF20_2124);
             self.content.add_child_view(Some(&mut View::from(&view)));
+            if self.splitter.is_none()
+                && let Some(window) = &self.window
+            {
+                let handle =
+                    views::create_browser_view(Role::Splitter, SPLITTER_URL, self.background());
+                // Activatable: macOS only shows the resize cursor over it then.
+                let overlay =
+                    window.add_overlay_view(Some(&mut View::from(&handle)), DockingMode::CUSTOM, 1);
+                self.splitter = Some((handle, overlay));
+            }
             self.docked_devtools.insert(tab, view);
             self.apply_layout();
             self.layout_tabs();
@@ -2814,6 +2854,9 @@ impl Controller {
         self.sidebar.set_background_color(color);
         self.peek.set_background_color(color);
         self.start.set_background_color(color);
+        if let Some((view, _)) = &self.splitter {
+            view.set_background_color(color);
+        }
         self.update_page_corners();
         self.ui_dirty = true;
     }
@@ -2987,6 +3030,7 @@ impl Controller {
         if let Some(overlay) = &self.overlay {
             overlay.set_visible(0);
         }
+        self.place_splitter();
         if mode == PaletteMode::Find {
             if let Some(host) = self.session.active_tab().and_then(|id| self.host(id)) {
                 host.stop_finding(1);
@@ -3042,7 +3086,53 @@ impl Controller {
         overlay.set_visible(1);
     }
 
+    /// Puts the drag handle over the gap between the pages and the active
+    /// tab's docked DevTools, or hides it.
+    fn place_splitter(&self) {
+        let Some((_, Some(overlay))) = &self.splitter else {
+            return;
+        };
+        let devtools = self
+            .session
+            .active_tab()
+            .and_then(|tab| self.docked_devtools.get(&tab))
+            .filter(|view| view.is_visible() != 0);
+        // The command bar's backdrop covers the gap; the find bar doesn't.
+        let covered = self
+            .palette_mode
+            .is_some_and(|mode| mode != PaletteMode::Find);
+        let (Some(devtools), false, false) = (devtools, covered, self.fullscreen) else {
+            overlay.set_visible(0);
+            return;
+        };
+        let content = self.content.bounds();
+        let pages = self.pages.bounds();
+        let tools = devtools.bounds();
+        let bounds = if self.session.devtools_dock == DevToolsDock::Bottom {
+            Rect {
+                x: content.x + pages.x,
+                y: content.y + pages.y + pages.height,
+                width: pages.width,
+                height: tools.y - pages.y - pages.height,
+            }
+        } else {
+            Rect {
+                x: content.x + pages.x + pages.width,
+                y: content.y + pages.y,
+                width: tools.x - pages.x - pages.width,
+                height: pages.height,
+            }
+        };
+        if bounds.width <= 0 || bounds.height <= 0 {
+            overlay.set_visible(0);
+            return;
+        }
+        overlay.set_bounds(Some(&bounds));
+        overlay.set_visible(1);
+    }
+
     fn place_palette(&self) {
+        self.place_splitter();
         let (Some(overlay), Some(mode)) = (&self.overlay, self.palette_mode) else {
             return;
         };
@@ -3281,6 +3371,18 @@ fn run_js(view: &BrowserView, code: &str) {
             Some(&CefString::from("circle://ui/")),
             0,
         );
+    }
+}
+
+/// Runs Circle's own script (the resize grip and dock buttons) in a docked
+/// DevTools front-end, and nowhere else.
+fn run_devtools_js(view: &BrowserView, code: &str) {
+    if let Some(frame) = view.browser().and_then(|b| b.main_frame())
+        && CefString::from(&frame.url())
+            .to_string()
+            .starts_with("devtools://devtools/")
+    {
+        frame.execute_java_script(Some(&CefString::from(code)), None, 0);
     }
 }
 

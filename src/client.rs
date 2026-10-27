@@ -4,7 +4,7 @@
 use crate::{
     controller::{self, Action, Cmd, DownloadInfo, PermissionCallback, PermissionRequest},
     keys,
-    model::TabId,
+    model::{DevToolsDock, TabId},
     scheme,
 };
 use cef::*;
@@ -28,6 +28,8 @@ pub enum Role {
     Start,
     /// Recording controls floating over the page while the sidebar is hidden.
     RecBar,
+    /// The drag handle in the gap between the pages and docked DevTools.
+    Splitter,
 }
 
 /// Prefix of the console messages the docked DevTools' resize grip sends.
@@ -56,14 +58,25 @@ fn parse_grip(message: &str) -> Option<GripDrag> {
     }
 }
 
+/// The docked DevTools' toolbar buttons: dock to the other side, or close.
+fn parse_devtools_button(message: &str) -> Option<Action> {
+    match message.strip_prefix(DEVTOOLS_GRIP)? {
+        "dock:right" => Some(Action::DockDevTools(DevToolsDock::Right)),
+        "dock:bottom" => Some(Action::DockDevTools(DevToolsDock::Bottom)),
+        "close" => Some(Action::DevTools),
+        _ => None,
+    }
+}
+
 /// A thin strip along the docked DevTools' inner edge; dragging it reports
-/// the distance moved through the console (see `parse_grip`).
+/// the distance moved through the console (see `parse_grip`). Also adds
+/// buttons to DevTools' toolbar to dock it to the other side or close it.
 pub const DEVTOOLS_GRIP_JS: &str = r#"(side) => {
+  const say = (text) => console.debug("__circle_devtools_grip__:" + text);
   let grip = window.__circleGrip;
   if (!grip) {
     grip = window.__circleGrip = document.createElement("div");
     let start = null;
-    const say = (text) => console.debug("__circle_devtools_grip__:" + text);
     grip.addEventListener("pointerdown", (e) => {
       start = [e.screenX, e.screenY];
       grip.setPointerCapture(e.pointerId);
@@ -81,6 +94,45 @@ pub const DEVTOOLS_GRIP_JS: &str = r#"(side) => {
   const right = side === "right";
   grip.style.cssText = "position:fixed;z-index:2147483647;background:transparent;" +
     (right ? "left:0;top:0;bottom:0;width:6px;cursor:col-resize;" : "left:0;right:0;top:0;height:6px;cursor:row-resize;");
+
+  // DevTools' toolbar renders after load, inside shadow roots.
+  const toolbar = () => {
+    const pane = document.querySelector(".main-tabbed-pane");
+    return pane && pane.shadowRoot && pane.shadowRoot.querySelector(".tabbed-pane-right-toolbar");
+  };
+  const icon = (path) => '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + path + "</svg>";
+  const button = (label, svg, message) => {
+    const b = document.createElement("button");
+    b.title = label;
+    b.setAttribute("aria-label", label);
+    b.innerHTML = svg;
+    b.style.cssText = "width:26px;height:26px;margin:0 1px;padding:0;display:inline-grid;place-items:center;border:0;border-radius:4px;" +
+      "background:transparent;color:var(--icon-default, var(--sys-color-on-surface-subtle, #888));cursor:pointer;";
+    b.onmouseenter = () => (b.style.background = "var(--sys-color-state-hover-on-subtle, rgba(128,128,128,.18))");
+    b.onmouseleave = () => (b.style.background = "transparent");
+    b.onclick = () => say(message);
+    return b;
+  };
+  const addButtons = (tries) => {
+    const bar = toolbar();
+    if (!bar) {
+      if (tries > 0) setTimeout(() => addButtons(tries - 1), 250);
+      return;
+    }
+    bar.querySelector(".circle-dock")?.remove();
+    const box = document.createElement("span");
+    box.className = "circle-dock";
+    box.style.cssText = "display:inline-flex;align-items:center;";
+    const frame = '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/>';
+    box.append(
+      right
+        ? button("Dock to bottom", icon(frame + '<path d="M2.5 9.5h11"/>'), "dock:bottom")
+        : button("Dock to right", icon(frame + '<path d="M9.5 3v10"/>'), "dock:right"),
+      button("Close developer tools", icon('<path d="M4 4l8 8M12 4l-8 8"/>'), "close"),
+    );
+    bar.append(box);
+  };
+  addButtons(40);
 }"#;
 
 thread_local! {
@@ -213,7 +265,12 @@ wrap_display_handler! {
             let Role::DevTools(tab) = self.role else {
                 return 0;
             };
-            match parse_grip(&string(message)) {
+            let message = string(message);
+            if let Some(action) = parse_devtools_button(&message) {
+                controller::dispatch(Cmd::Action(action));
+                return 1;
+            }
+            match parse_grip(&message) {
                 Some(drag) => {
                     controller::dispatch(Cmd::DevToolsGrip(tab, drag));
                     1
@@ -288,6 +345,7 @@ wrap_life_span_handler! {
                     | Role::Recorder
                     | Role::Start
                     | Role::RecBar
+                    | Role::Splitter
             ) {
                 scheme::allow_browser(browser.identifier());
             }
@@ -341,7 +399,13 @@ wrap_request_handler! {
         ) -> c_int {
             let ui = matches!(
                 self.role,
-                Role::Sidebar | Role::Palette | Role::Peek | Role::Recorder | Role::Start | Role::RecBar
+                Role::Sidebar
+                    | Role::Palette
+                    | Role::Peek
+                    | Role::Recorder
+                    | Role::Start
+                    | Role::RecBar
+                    | Role::Splitter
             );
             let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
             (ui && !url.starts_with("circle://ui/")) as c_int
@@ -925,6 +989,18 @@ mod tests {
             Some(GripDrag::End)
         );
         assert_eq!(parse_grip("hello"), None);
+        assert_eq!(
+            parse_devtools_button("__circle_devtools_grip__:dock:bottom"),
+            Some(Action::DockDevTools(DevToolsDock::Bottom))
+        );
+        assert_eq!(
+            parse_devtools_button("__circle_devtools_grip__:close"),
+            Some(Action::DevTools)
+        );
+        assert_eq!(
+            parse_devtools_button("__circle_devtools_grip__:start"),
+            None
+        );
         assert_eq!(parse_grip("__circle_devtools_grip__:move:x:1"), None);
     }
 }

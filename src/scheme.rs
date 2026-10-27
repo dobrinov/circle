@@ -100,6 +100,16 @@ const ASSETS: &[(&str, &str, &[u8])] = &[
         include_bytes!("../ui/settings.js"),
     ),
     (
+        "/splitter.html",
+        "text/html",
+        include_bytes!("../ui/splitter.html"),
+    ),
+    (
+        "/splitter.js",
+        "text/javascript",
+        include_bytes!("../ui/splitter.js"),
+    ),
+    (
         "/recbar.html",
         "text/html",
         include_bytes!("../ui/recbar.html"),

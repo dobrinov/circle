@@ -40,6 +40,15 @@ as you go; `cargo xtask release <version>` turns them into a release.
   as dots), switchable per recording and in Settings › Recording.
 - While the sidebar is hidden, recording controls float over the page instead
   of opening the sidebar. They never appear in the recording.
+- Docked developer tools have buttons to switch between the right and the
+  bottom and to close them, and resize from anywhere along the gap next to
+  the page.
+
+### Changed
+
+- A new app icon: a ring flowing from blue to teal to green, matching
+  the other products on dobrinov.github.io.
+- New spaces start in the logo's blue (then teal and green).
 
 ### Fixed
 

@@ -181,8 +181,10 @@ jobs:
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" >/dev/null
           ditto "$mount/Circle.app" "$RUNNER_TEMP/Circle.app"
           hdiutil detach "$mount" >/dev/null
+          page="$RUNNER_TEMP/smoke.html"
+          echo "<title>ok</title><script>document.title='js-'+(6*7)</script>" > "$page"
           CIRCLE_PROFILE_DIR="$profile" "$RUNNER_TEMP/Circle.app/Contents/MacOS/Circle" \
-            --remote-debugging-port=9333 "data:text/html,<title>ok</title><script>document.title='js-'+(6*7)</script>" &
+            --remote-debugging-port=9333 "$page" &
           app=$!
           for _ in $(seq 60); do
             curl -s http://127.0.0.1:9333/json/list | grep -q '"js-42"' && break

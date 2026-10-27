@@ -1,7 +1,7 @@
-//! Draws the Circle app icon ("Halo"): a ring whose colors flow around the
-//! circle (an angular gradient), with a soft glow and a top sheen, on a dusk
-//! tile. The PNGs, `.ico` and `.icns` files are committed, so this only runs
-//! when the design changes.
+//! Draws the Circle app icon: a complete ring whose color flows blue → teal
+//! → green and back (an angular gradient) on a dark tile, in the style of the
+//! other products on dobrinov.github.io. The PNGs, `.ico` and `.icns` files
+//! are committed, so this only runs when the design changes.
 //!
 //! tiny-skia has no angular gradients, so the ring is computed per pixel.
 
@@ -10,21 +10,18 @@ use anyhow::Result;
 use std::{fs, process::Command};
 use tiny_skia::*;
 
-/// The ring's colors around the circle (0..1 clockwise), starting at 140°
-/// from the top. The loop starts and ends on the same color, so it is seamless.
-const RING_STOPS: [(f32, u32); 7] = [
-    (0.00, 0x2F6BFF),
-    (0.22, 0x7B3BFF),
-    (0.48, 0xFF3D8B),
-    (0.66, 0xFFB23F),
-    (0.82, 0xFF3D8B),
-    (0.92, 0x7B3BFF),
-    (1.00, 0x2F6BFF),
+/// The ring's colors around the circle (0..1 clockwise from the top). The
+/// loop starts and ends on the same color, so it is seamless.
+const RING_STOPS: [(f32, u32); 4] = [
+    (0.0, 0x4A6CFF),
+    (1.0 / 3.0, 0x2A9BA3),
+    (2.0 / 3.0, 0x45C75B),
+    (1.0, 0x4A6CFF),
 ];
-const RING_START_DEG: f32 = 140.0;
+const TILE: u32 = 0x10141D;
 /// Ring diameter relative to the tile, and thickness relative to its radius.
-const RING_SCALE: f32 = 680.0 / 824.0;
-const RING_THICKNESS: f32 = 0.41;
+const RING_SCALE: f32 = 0.67;
+const RING_THICKNESS: f32 = 0.42;
 
 fn rgb(hex: u32) -> [f32; 3] {
     [
@@ -46,18 +43,6 @@ fn ring_color(t: f32) -> [f32; 3] {
         }
     }
     rgb(RING_STOPS[0].1)
-}
-
-/// The standard normal CDF, for a Gaussian-blurred band.
-fn phi(x: f32) -> f32 {
-    // Abramowitz & Stegun 7.1.26 approximation of erf.
-    let z = x.abs() / std::f32::consts::SQRT_2;
-    let t = 1.0 / (1.0 + 0.327_591_1 * z);
-    let poly = t
-        * (0.254_829_6
-            + t * (-0.284_496_7 + t * (1.421_413_7 + t * (-1.453_152 + t * 1.061_405_4))));
-    let erf = 1.0 - poly * (-z * z).exp();
-    0.5 * (1.0 + if x < 0.0 { -erf } else { erf })
 }
 
 /// Composites a straight-alpha color over a premultiplied RGBA pixel.
@@ -129,76 +114,37 @@ fn draw(n: u32, mac: bool) -> Pixmap {
             );
         }
     }
-    // Dusk tile: a diagonal gradient with a violet glow just above center.
-    let dusk = LinearGradient::new(
-        Point::from_xy(inset, inset),
-        Point::from_xy(inset + side, inset + side),
-        vec![
-            GradientStop::new(0.0, Color::from_rgba8(0x2A, 0x1B, 0x5E, 255)),
-            GradientStop::new(1.0, Color::from_rgba8(0x0B, 0x07, 0x18, 255)),
-        ],
-        SpreadMode::Pad,
-        Transform::identity(),
-    )
-    .unwrap();
-    let fill = |pixmap: &mut Pixmap, shader| {
-        let paint = Paint {
-            anti_alias: true,
-            shader,
-            ..Default::default()
-        };
-        pixmap.fill_path(
-            &tile,
-            &paint,
-            FillRule::Winding,
-            Transform::identity(),
-            None,
-        );
+    let [r, g, b] = rgb(TILE).map(|c| (c * 255.0).round() as u8);
+    let mut paint = Paint {
+        anti_alias: true,
+        ..Default::default()
     };
-    fill(&mut pixmap, dusk);
-    let glow_center = Point::from_xy(inset + side * 0.5, inset + side * 0.46);
-    let farthest = (side * 0.5).hypot(side * 0.54);
-    let violet_glow = RadialGradient::new(
-        glow_center,
-        glow_center,
-        farthest * 0.58,
-        vec![
-            GradientStop::new(0.0, Color::from_rgba8(138, 107, 255, 128)),
-            GradientStop::new(1.0, Color::from_rgba8(138, 107, 255, 0)),
-        ],
-        SpreadMode::Pad,
+    paint.set_color_rgba8(r, g, b, 255);
+    pixmap.fill_path(
+        &tile,
+        &paint,
+        FillRule::Winding,
         Transform::identity(),
-    )
-    .unwrap();
-    fill(&mut pixmap, violet_glow);
+        None,
+    );
 
-    // The ring, its glow and its sheen, per pixel.
+    // The ring, per pixel.
     let center = inset + side / 2.0;
     let outer = side * RING_SCALE / 2.0;
     let inner = outer * (1.0 - RING_THICKNESS);
-    let sigma = 0.03 * side * 1024.0 / 824.0;
     let width = n as usize;
     let data = pixmap.data_mut();
     for y in 0..n {
         for x in 0..n {
             let (dx, dy) = (x as f32 + 0.5 - center, y as f32 + 0.5 - center);
             let r = dx.hypot(dy);
-            if r > outer + 4.0 * sigma {
+            if r > outer + 1.0 || r < inner - 1.0 {
                 continue;
             }
             let i = (y as usize * width + x as usize) * 4;
-            let px = &mut data[i..i + 4];
-            let tile_coverage = px[3] as f32 / 255.0;
-            let angle = dx.atan2(-dy).to_degrees();
-            let t = (angle - RING_START_DEG).rem_euclid(360.0) / 360.0;
-            let color = ring_color(t);
-            let glow = 0.55 * (phi((outer - r) / sigma) - phi((inner - r) / sigma));
-            blend(px, color, glow * tile_coverage);
+            let t = dx.atan2(-dy).to_degrees().rem_euclid(360.0) / 360.0;
             let coverage = (outer - r + 0.5).clamp(0.0, 1.0) * (r - inner + 0.5).clamp(0.0, 1.0);
-            blend(px, color, coverage);
-            let from_top = (y as f32 + 0.5 - (center - outer)) / (2.0 * outer);
-            let sheen = 0.42 * (1.0 - from_top / 0.48).max(0.0);
-            blend(px, [1.0; 3], sheen * coverage);
+            blend(&mut data[i..i + 4], ring_color(t), coverage);
         }
     }
     pixmap
