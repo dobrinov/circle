@@ -7,6 +7,8 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-27
+
 ### Changed
 
 - The update card in the sidebar is easier to read, on any space colour.
