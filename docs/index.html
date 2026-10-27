@@ -19,8 +19,8 @@
 <meta name="twitter:title" content="Circle — the arc, completed">
 <meta name="twitter:description" content="The calm, sidebar-first browser. Spaces, Spotlight, split view and docked DevTools — open source, built in Rust on Chromium, and ready for AI agents.">
 <meta name="twitter:image" content="https://dobrinov.github.io/circle/assets/og-logo.png">
-<meta name="theme-color" content="#F6F3FB" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0E0B1A" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F5F6F8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0A0D13" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png">
@@ -36,26 +36,26 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <style>
 :root {
-  --ground: #F6F3FB;
+  --ground: #F5F6F8;
   --surface: #FFFFFF;
-  --ink: #17132B;
-  --muted: #5B5670;
-  --line: rgba(23, 19, 43, 0.1);
-  --violet: #6A2DF0;
-  --chip: #ECE6F8;
+  --ink: #10141D;
+  --muted: #5A6170;
+  --line: rgba(16, 20, 29, 0.1);
+  --accent: #3B5BEB;
+  --chip: #E9EDF5;
   --ring: conic-gradient(#4A6CFF, #2A9BA3 33.3%, #45C75B 66.6%, #4A6CFF);
-  --shadow: 0 1px 2px rgba(23, 19, 43, 0.06), 0 24px 60px rgba(42, 27, 94, 0.16);
+  --shadow: 0 1px 2px rgba(16, 20, 29, 0.06), 0 24px 60px rgba(16, 20, 29, 0.14);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --ground: #0E0B1A;
-    --surface: #171327;
-    --ink: #F1EEFA;
-    --muted: #A9A3BF;
-    --line: rgba(241, 238, 250, 0.12);
-    --violet: #A98BFF;
-    --chip: #241E3A;
+    --ground: #0A0D13;
+    --surface: #131823;
+    --ink: #EEF1F6;
+    --muted: #A3AAB8;
+    --line: rgba(238, 241, 246, 0.12);
+    --accent: #8098FF;
+    --chip: #1C2230;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 24px 60px rgba(0, 0, 0, 0.5);
     color-scheme: dark;
   }
@@ -69,7 +69,7 @@ body {
   font: 17px/1.6 "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-a { color: var(--violet); }
+a { color: var(--accent); }
 a:hover { text-decoration-thickness: 2px; }
 img { max-width: 100%; height: auto; display: block; }
 .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
@@ -96,7 +96,7 @@ nav .links a:hover { color: var(--ink); }
 .btn:hover { transform: translateY(-1px); }
 .btn svg { width: 18px; height: 18px; flex: none; }
 .small { font-size: 14px; color: var(--muted); margin-top: 14px; position: relative; }
-.shot { margin: 56px auto 0; max-width: 1000px; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); background: #F6F3FB; position: relative; }
+.shot { margin: 56px auto 0; max-width: 1000px; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); background: var(--chip); position: relative; }
 /* Every demo is recorded at 16:10 and shown at 16:10. */
 .shot, .feature .media { aspect-ratio: 16 / 10; }
 .shot img, .feature .media img,
@@ -104,14 +104,14 @@ nav .links a:hover { color: var(--ink); }
 
 /* ----- features ----- */
 section { padding: 72px 0; }
-.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--violet); margin: 0 0 10px; }
+.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
 h2 { margin: 0; font-size: clamp(30px, 4.2vw, 44px); line-height: 1.1; letter-spacing: -0.03em; font-weight: 800; }
 .feature { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; align-items: center; padding: 48px 0; }
 .feature.flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
 .feature.flip .text { order: 2; }
 .feature h3 { margin: 0 0 12px; font-size: 28px; line-height: 1.2; letter-spacing: -0.02em; }
 .feature p { margin: 0 0 12px; color: var(--muted); }
-.feature .media { border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); background: #F6F3FB; }
+.feature .media { border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); background: var(--chip); }
 .caption { font-size: 13px; color: var(--muted); margin-top: 10px; text-align: center; }
 kbd { display: inline-block; min-width: 24px; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--line); border-bottom-width: 2px; background: var(--surface); font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.6; color: var(--ink); text-align: center; }
 
@@ -120,8 +120,8 @@ kbd { display: inline-block; min-width: 24px; padding: 1px 7px; border-radius: 6
 .card h4 { margin: 0 0 6px; font-size: 17px; }
 .card p { margin: 0; font-size: 15px; color: var(--muted); }
 
-pre { margin: 18px 0 0; padding: 18px 20px; border-radius: 12px; background: #17132B; color: #EDE8FF; font: 14px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow-x: auto; }
-pre .c { color: #9F96C0; }
+pre { margin: 18px 0 0; padding: 18px 20px; border-radius: 12px; background: #10141D; color: #E6EAF2; font: 14px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow-x: auto; }
+pre .c { color: #8A93A6; }
 
 /* ----- shortcuts ----- */
 .keys { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; margin-top: 32px; }
@@ -130,13 +130,13 @@ pre .c { color: #9F96C0; }
 /* ----- download ----- */
 .downloads { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 36px; }
 .os { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 26px; display: flex; flex-direction: column; gap: 12px; }
-.os.mine { border-color: var(--violet); box-shadow: 0 0 0 1px var(--violet); }
+.os.mine { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .os h3 { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 20px; }
 .os h3 svg { width: 22px; height: 22px; }
 .os .files { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .os .files a { display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 10px; background: var(--chip); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 15px; }
 .os .files a span { color: var(--muted); font-weight: 500; }
-.os .files a:hover { outline: 2px solid var(--violet); }
+.os .files a:hover { outline: 2px solid var(--accent); }
 .os p { margin: 0; font-size: 14px; color: var(--muted); }
 
 footer { border-top: 1px solid var(--line); padding: 36px 0 56px; font-size: 14px; color: var(--muted); }
@@ -188,7 +188,7 @@ footer .brand img { width: 24px; height: 24px; }
     </div>
     <p class="small">Free and open source · macOS, Windows and Linux</p>
     <div class="shot">
-      <video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/sidebar.jpg?v=3" data-gif="assets/sidebar.gif?v=2" aria-label="Circle's sidebar with GitHub tabs: switching tabs, opening a folder, jumping to the Work space and back, recolouring the space, a localhost tab with a DEV badge, then hiding the sidebar and peeking at it"><source src="assets/sidebar.webm?v=3" type='video/webm; codecs="vp9"'></video>
+      <video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/sidebar.jpg?v=4" data-gif="assets/sidebar.gif?v=3" aria-label="Circle's sidebar with GitHub tabs: switching tabs, opening a folder, jumping to the Work space and back, recolouring the space, a localhost tab with a DEV badge, then hiding the sidebar and peeking at it"><source src="assets/sidebar.webm?v=4" type='video/webm; codecs="vp9"'></video>
     </div>
   </div>
 </header>
@@ -205,7 +205,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Press <kbd>⌘</kbd> <kbd>K</kbd> and start typing. Jump to an open tab in any space, open a site in a new tab, search the web, or find that page from yesterday in your history.</p>
         </div>
         <div>
-          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/spotlight.jpg?v=3" data-gif="assets/spotlight.gif?v=2" aria-label="Spotlight over a blurred GitHub page: typing linux shows the torvalds/linux tab as the top hit, then switches to it"><source src="assets/spotlight.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/spotlight.jpg?v=4" data-gif="assets/spotlight.gif?v=3" aria-label="Spotlight over a blurred GitHub page: typing linux shows the torvalds/linux tab as the top hit, then switches to it"><source src="assets/spotlight.webm?v=4" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -215,7 +215,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Read the docs next to the thing you're building. Split with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>=</kbd> or a tab's right-click menu, and stack the pages with <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>-</kbd>.</p>
         </div>
         <div>
-          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/split.jpg?v=3" data-gif="assets/split.gif?v=2" aria-label="GitHub issues and pull requests side by side in split view, then stacked one above the other"><source src="assets/split.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/split.jpg?v=4" data-gif="assets/split.gif?v=3" aria-label="GitHub issues and pull requests side by side in split view, then stacked one above the other"><source src="assets/split.webm?v=4" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -225,7 +225,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Circle follows your system or stays light or dark, and websites that support dark mode switch with it.</p>
         </div>
         <div>
-          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/dark.jpg?v=3" data-gif="assets/dark.gif?v=2" aria-label="Circle and GitHub switching together from light to dark mode and back"><source src="assets/dark.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/dark.jpg?v=4" data-gif="assets/dark.gif?v=3" aria-label="Circle and GitHub switching together from light to dark mode and back"><source src="assets/dark.webm?v=4" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
     </div>
@@ -242,7 +242,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Chrome's developer tools, docked to the right, the bottom or in their own window. Drag the edge to resize. <kbd>⌥</kbd> <kbd>⌘</kbd> <kbd>I</kbd> or right-click › Inspect Element.</p>
         </div>
         <div>
-          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/devtools.jpg?v=3" data-gif="assets/devtools.gif?v=2" aria-label="Developer tools docked to the right of a GitHub page, then moved to the bottom"><source src="assets/devtools.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/devtools.jpg?v=4" data-gif="assets/devtools.gif?v=3" aria-label="Developer tools docked to the right of a GitHub page, then moved to the bottom"><source src="assets/devtools.webm?v=4" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -252,7 +252,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Tabs on <code>localhost</code> get a DEV badge and the address bar shows the port, so you never confuse your local build with production. On macOS the page frame picks up soft stripes too.</p>
         </div>
         <div>
-          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/localhost.jpg?v=3" data-gif="assets/localhost.gif?v=2" aria-label="Switching from GitHub to a local app on localhost: the frame around the page becomes striped"><source src="assets/localhost.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/localhost.jpg?v=4" data-gif="assets/localhost.gif?v=3" aria-label="Switching from GitHub to a local app on localhost: the frame around the page becomes striped"><source src="assets/localhost.webm?v=4" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
@@ -262,7 +262,7 @@ footer .brand img { width: 24px; height: 24px; }
           <p>Press <kbd>⌥</kbd> <kbd>⌘</kbd> <kbd>R</kbd>, pick Video or GIF and press Start. Show the bug or the feature, press Stop, and the file lands in your Downloads.</p>
         </div>
         <div>
-          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/recording.jpg?v=3" data-gif="assets/recording.gif?v=2" aria-label="Recording a GitHub page: the recording controls open in the sidebar, GIF is chosen and started, the page scrolls while the timer runs, Stop saves it, and it appears in the downloads panel"><source src="assets/recording.webm?v=3" type='video/webm; codecs="vp9"'></video></div>
+          <div class="media"><video class="demo" muted loop playsinline preload="none" width="1280" height="800" poster="assets/recording.jpg?v=4" data-gif="assets/recording.gif?v=3" aria-label="Recording a GitHub page: the recording controls open in the sidebar, GIF is chosen and started, the page scrolls while the timer runs, Stop saves it, and it appears in the downloads panel"><source src="assets/recording.webm?v=4" type='video/webm; codecs="vp9"'></video></div>
         </div>
       </div>
 
