@@ -2516,12 +2516,19 @@ impl Controller {
                     false,
                 ));
             }
+            // DevTools and the Network tool inspect the active tab, so they
+            // carry its DEV stripes too.
+            let inspecting_local = self
+                .session
+                .active_tab()
+                .and_then(|id| self.session.tab(id))
+                .is_some_and(|tab| is_local_url(&tab.url));
             pages.extend(
                 self.docked_devtools
                     .values()
                     .chain(&self.network)
                     .filter(|view| view.is_visible() != 0)
-                    .map(|view| (offset(view.bounds(), content.x, content.y), false)),
+                    .map(|view| (offset(view.bounds(), content.x, content.y), inspecting_local)),
             );
             pages.retain(|(r, _)| r.width > 0 && r.height > 0);
             let gap = if self.fullscreen { 0.0 } else { GAP as f64 };
