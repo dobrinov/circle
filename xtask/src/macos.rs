@@ -222,6 +222,37 @@ pub fn bundle(options: &Options) -> Result<PathBuf> {
     Ok(app)
 }
 
+/// Lays out the mounted DMG's window (layout.py, which needs the Python
+/// packages in packaging/macos/dmg/requirements.txt) and flags the volume
+/// as having a custom icon. Without those packages the DMG still works, as
+/// a plain window.
+fn style_volume(mount: &Path, app_name: &str, dmg_dir: &Path) -> Result<()> {
+    let python = env::var("CIRCLE_DMG_PYTHON").unwrap_or_else(|_| "python3".into());
+    let laid_out = Command::new(&python)
+        .arg("-I")
+        .arg(dmg_dir.join("layout.py"))
+        .arg(mount)
+        .arg(app_name)
+        .status()
+        .is_ok_and(|s| s.success());
+    if !laid_out {
+        if env::var_os("CI").is_some() {
+            bail!("couldn't lay out the DMG window (packaging/macos/dmg/layout.py)");
+        }
+        eprintln!(
+            "note: the DMG has a plain window; for the styled one run \
+             python3 -m pip install --require-hashes -r packaging/macos/dmg/requirements.txt"
+        );
+    }
+    run(Command::new("xattr")
+        .args([
+            "-wx",
+            "com.apple.FinderInfo",
+            "0000000000000000040000000000000000000000000000000000000000000000",
+        ])
+        .arg(mount))
+}
+
 pub fn package(options: &Options, app: &Path) -> Result<Vec<PathBuf>> {
     let version = version()?;
     let arch = match options.target_arch() {
@@ -233,11 +264,24 @@ pub fn package(options: &Options, app: &Path) -> Result<Vec<PathBuf>> {
         .join(format!("{APP_NAME}-{version}-macos-{arch}.dmg"));
     let staging = options.dist_dir().join("dmg");
     reset_dir(&staging)?;
-    run(Command::new("ditto")
-        .arg(app)
-        .arg(staging.join(format!("{APP_NAME}.app"))))?;
+    let app_name = format!("{APP_NAME}.app");
+    run(Command::new("ditto").arg(app).arg(staging.join(&app_name)))?;
     std::os::unix::fs::symlink("/Applications", staging.join("Applications"))?;
+    // The window: a background with an arrow to Applications, the icons on
+    // it, no toolbar, and Circle's icon on the volume.
+    let dmg_dir = root().join("packaging/macos/dmg");
+    fs::create_dir_all(staging.join(".background"))?;
+    fs::copy(
+        dmg_dir.join("background.tiff"),
+        staging.join(".background/background.tiff"),
+    )?;
+    fs::copy(
+        root().join("resources/icons/circle.icns"),
+        staging.join(".VolumeIcon.icns"),
+    )?;
     let _ = fs::remove_file(&dmg);
+    let writable = options.dist_dir().join("rw.dmg");
+    let _ = fs::remove_file(&writable);
     run(Command::new("hdiutil")
         .args([
             "create",
@@ -246,13 +290,35 @@ pub fn package(options: &Options, app: &Path) -> Result<Vec<PathBuf>> {
             "-fs",
             "HFS+",
             "-format",
-            "UDZO",
+            "UDRW",
             "-ov",
             "-srcfolder",
         ])
         .arg(&staging)
-        .arg(&dmg))?;
+        .arg(&writable))?;
     fs::remove_dir_all(&staging)?;
+    let mount = options.dist_dir().join("rw-mount");
+    reset_dir(&mount)?;
+    run(Command::new("hdiutil")
+        .args(["attach", "-nobrowse", "-noautoopen", "-mountpoint"])
+        .arg(&mount)
+        .arg(&writable))?;
+    let styled = style_volume(&mount, &app_name, &dmg_dir);
+    run(Command::new("hdiutil").arg("detach").arg(&mount))?;
+    styled?;
+    run(Command::new("hdiutil")
+        .args([
+            "convert",
+            "-format",
+            "UDZO",
+            "-imagekey",
+            "zlib-level=9",
+            "-o",
+        ])
+        .arg(&dmg)
+        .arg(&writable))?;
+    fs::remove_file(&writable)?;
+    let _ = fs::remove_dir(&mount);
     // With a Developer ID, sign the disk image too (Gatekeeper checks it).
     let identity = env::var("CIRCLE_CODESIGN_IDENTITY").unwrap_or_else(|_| "-".into());
     if identity != "-" {

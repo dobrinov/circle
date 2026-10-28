@@ -28,6 +28,7 @@ const PEEK_URL: &str = "circle://ui/sidebar.html?peek";
 const RECORDER_URL: &str = "circle://ui/recorder.html";
 const RECBAR_URL: &str = "circle://ui/recbar.html";
 const SPLITTER_URL: &str = "circle://ui/splitter.html";
+const SPLIT_DROP_URL: &str = "circle://ui/splitdrop.html";
 /// How far the floating recording controls sit above the page's bottom edge.
 const RECBAR_MARGIN: c_int = 20;
 const UPDATE_EVERY_MS: i64 = 6 * 60 * 60 * 1000;
@@ -87,10 +88,15 @@ pub enum Action {
     Space(usize),
     TabIndex(usize),
     ToggleSplit,
+    /// Back to one page from split view.
+    Unsplit,
+    DuplicateTab,
     /// Split view side by side ↔ one above the other.
     ToggleSplitDirection,
     Zoom(i32),
     DevTools,
+    /// Opens or closes the Network tool.
+    Network,
     ViewSource,
     CopyUrl,
     Fullscreen,
@@ -114,6 +120,9 @@ pub enum Action {
     CheckForUpdates,
     /// Quits and installs the downloaded update, then relaunches.
     RestartToUpdate,
+    /// Quits and starts again (for extensions turned off or updated).
+    Restart,
+    CloseExtensionPopup,
     /// Opens (or goes to) the private space.
     PrivateSpace,
     /// Closes the private space at once, with everything in it.
@@ -156,6 +165,15 @@ pub enum UiCmd {
         /// One above the other instead of side by side.
         #[serde(default)]
         stacked: bool,
+        /// This tab goes on the left (or top), the other on the right.
+        #[serde(default)]
+        first: bool,
+    },
+    /// A tab is being dragged from the sidebar (or the drag ended): offer to
+    /// drop it into split view.
+    TabDrag {
+        #[serde(default)]
+        id: Option<TabId>,
     },
     Move {
         id: TabId,
@@ -186,6 +204,96 @@ pub enum UiCmd {
         #[serde(default)]
         dy: i32,
     },
+    /// The Network tool connects to a tab, sends it a CDP message, or
+    /// stops listening to it.
+    NetConnect {
+        tab: TabId,
+    },
+    NetSend {
+        tab: TabId,
+        message: String,
+    },
+    NetDisconnect {
+        tab: TabId,
+    },
+    /// The Network tool's edge is being dragged to resize it.
+    NetworkGrip {
+        phase: String,
+        #[serde(default)]
+        dx: i32,
+        #[serde(default)]
+        dy: i32,
+    },
+    /// The password suggestions' or save prompt's size.
+    AutofillSize {
+        width: c_int,
+        height: c_int,
+    },
+    /// A saved login picked from the suggestions under a field.
+    AutofillPick {
+        id: u64,
+    },
+    /// The save prompt: save (or update) the login.
+    AutofillSave,
+    /// The save prompt: never offer for this site.
+    AutofillNever,
+    AutofillClose,
+    /// Open the Passwords settings.
+    AutofillManage,
+    /// Settings: show or copy a saved password (after Touch ID or Windows
+    /// Hello), delete one, or allow saving on a site again.
+    PasswordReveal {
+        id: u64,
+    },
+    PasswordCopy {
+        id: u64,
+    },
+    PasswordDelete {
+        id: u64,
+    },
+    PasswordForgetNever {
+        origin: String,
+    },
+    /// The Chrome Web Store card's size, and its buttons.
+    ExtCardSize {
+        width: c_int,
+        height: c_int,
+    },
+    ExtAdd,
+    ExtConfirm,
+    ExtCancel,
+    ExtManage,
+    ExtCardClose,
+    /// An extension's button next to the address bar: open its popup under
+    /// `rect` (CSS px in the sidebar, or the peek sidebar).
+    ExtOpen {
+        id: String,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        #[serde(default)]
+        peek: bool,
+    },
+    /// Settings: turn an extension on or off, pin its button, open its
+    /// options, remove it, or load one unpacked.
+    ExtEnable {
+        id: String,
+        on: bool,
+    },
+    ExtPin {
+        id: String,
+        pinned: bool,
+    },
+    ExtOptions {
+        id: String,
+    },
+    ExtRemove {
+        id: String,
+    },
+    ExtLoadUnpacked,
+    /// Open the Chrome Web Store.
+    ExtStore,
     /// The floating recording controls' size, to fit their overlay to.
     RecbarSize {
         width: c_int,
@@ -245,6 +353,10 @@ pub enum UiCmd {
         recording_keys: Option<bool>,
         #[serde(default)]
         recording_float: Option<bool>,
+        #[serde(default)]
+        passwords_enabled: Option<bool>,
+        #[serde(default)]
+        passwords_offer: Option<bool>,
         /// A remembered site permission to forget.
         #[serde(default)]
         forget_grant: Option<String>,
@@ -481,10 +593,57 @@ pub enum Cmd {
     AgentIdle,
     /// Inspect the element at a point in a tab (from the context menu).
     Inspect(TabId, Point),
+    /// CDP messages from a tab for the Network tool.
+    NetworkCdp(TabId, Vec<String>),
     /// A docked DevTools front-end finished loading.
     DevToolsLoaded(TabId),
+    /// A tab's page finished loading (main frame).
+    PageLoaded(TabId),
+    /// A page's password helper has news to collect.
+    PasswordsPing(TabId),
+    /// What a page's password helper collected, from its world `context`.
+    PasswordsNews(TabId, i64, Vec<Value>),
+    /// The person did (or didn't) confirm it's them, to show or copy a
+    /// saved password.
+    PasswordConfirmed {
+        id: u64,
+        copy: bool,
+        ok: bool,
+    },
     /// The docked DevTools' resize grip is being dragged.
     DevToolsGrip(TabId, crate::client::GripDrag),
+    /// Chromium loaded (or failed to load) an extension.
+    ExtLoaded {
+        path: PathBuf,
+        expected: Option<String>,
+        purpose: extensions_ui::LoadPurpose,
+        result: Result<String, String>,
+    },
+    ExtUninstalled {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// A download from the Chrome Web Store, verified and unpacked.
+    ExtFetched {
+        id: String,
+        result: Result<(PathBuf, crate::extensions::Manifest), String>,
+    },
+    ExtUpdated {
+        id: String,
+        path: PathBuf,
+        version: String,
+    },
+    ExtUnpackedChosen(PathBuf),
+    /// Circle's bridge extension told a page's Chrome tab id.
+    ExtTabId(TabId, i64),
+    /// An extension popup's page wants this size.
+    ExtPopupSize(c_int, c_int, c_int),
+    ExtPopupClosed(c_int),
+    /// Stop waiting for extensions and show the window.
+    ExtStartupTimeout,
+    ExtCheckUpdates,
+    /// Keyboard focus moved to a browser of this role.
+    Focused(Role),
     BrowserCreated(Role, Browser),
 }
 
@@ -547,6 +706,8 @@ enum Timer {
     ShowPalette(u64),
     UpdateCheck,
     WhatsNew,
+    ExtensionsStartup,
+    ExtensionsUpdate,
 }
 
 fn schedule(timer: Timer, delay_ms: i64) {
@@ -583,6 +744,8 @@ wrap_task! {
                 Timer::ShowPalette(generation) => Cmd::ShowPalette(generation),
                 Timer::UpdateCheck => Cmd::CheckUpdates,
                 Timer::WhatsNew => Cmd::WhatsNew,
+                Timer::ExtensionsStartup => Cmd::ExtStartupTimeout,
+                Timer::ExtensionsUpdate => Cmd::ExtCheckUpdates,
             });
         }
     }
@@ -601,15 +764,18 @@ pub fn start(profile_dir: &Path, initial_urls: Vec<String>) {
     }
     crate::remote::start(profile_dir);
     crate::remote::set_agent_access(controller.session.agent_access);
-    let sidebar = controller.sidebar.clone();
-    let content = controller.content.clone();
-    let palette = controller.palette.clone();
-    let peek = controller.peek.clone();
+    // Pages restored at startup should get their extensions' scripts, so
+    // the window waits (briefly) for extensions to load.
+    if controller.begin_loading_extensions() {
+        schedule(Timer::ExtensionsStartup, extensions_ui::STARTUP_WAIT_MS);
+    } else {
+        controller.show_window_once();
+    }
     CONTROLLER.with(|cell| *cell.borrow_mut() = Some(controller));
     if !initial_urls.is_empty() {
         QUEUE.with(|q| q.borrow_mut().push_back(Cmd::OpenUrls(initial_urls)));
     }
-    views::create_main_window(sidebar, content, palette, peek);
+    schedule(Timer::ExtensionsUpdate, 60_000);
     schedule(Timer::Tick, TICK_MS);
     // The first update check waits until startup has settled.
     schedule(Timer::UpdateCheck, 15_000);
@@ -712,10 +878,52 @@ pub struct Controller {
     recorder_ready: bool,
     /// Recording controls over the page, created on first use.
     recbar: Option<(BrowserView, Option<OverlayController>)>,
+    /// The card for dropping a dragged tab into split view, made on first use.
+    split_drop: Option<(BrowserView, Option<OverlayController>)>,
+    split_drop_ready: bool,
+    /// The Network tool, while open.
+    network: Option<BrowserView>,
+    network_ready: bool,
+    /// What the Network tool was last told, to skip repeats.
+    network_pushed: std::cell::RefCell<String>,
+    network_drag_start: Option<c_int>,
+    /// The Network tool's connections to tabs.
+    network_cdp: HashMap<TabId, crate::remote::LocalClient>,
+    /// The tab being dragged from the sidebar.
+    tab_drag: Option<TabId>,
     /// The drag handle over the gap next to docked DevTools, made on first use.
     splitter: Option<(BrowserView, Option<OverlayController>)>,
     recbar_ready: bool,
     recbar_size: (c_int, c_int),
+    /// Saved passwords, opened on first use.
+    vault: Option<crate::passwords::Vault>,
+    vault_error: Option<String>,
+    /// The password suggestions or save prompt over the page.
+    autofill: Option<(BrowserView, Option<OverlayController>)>,
+    autofill_ready: bool,
+    autofill_size: (c_int, c_int),
+    autofill_state: Option<passwords_ui::Autofill>,
+    /// Installed extensions, and those running in Chromium (by ID, with the
+    /// folder each was loaded from).
+    ext: crate::extensions::Registry,
+    ext_loaded: HashMap<String, PathBuf>,
+    /// Why extensions didn't load, by ID.
+    ext_failures: HashMap<String, String>,
+    /// Extension loads the window waits for at startup.
+    ext_waiting: usize,
+    window_requested: bool,
+    /// Each tab's id in Chromium's extension system.
+    ext_tab_ids: HashMap<TabId, i64>,
+    ext_popup: Option<extensions_ui::Popup>,
+    /// The popup last closed, and when (see `open_extension_popup`).
+    ext_popup_closed: Option<(String, std::time::Instant)>,
+    /// The card on Chrome Web Store pages.
+    ext_card: Option<(BrowserView, Option<OverlayController>)>,
+    ext_card_ready: bool,
+    ext_card_size: (c_int, c_int),
+    ext_offer: Option<extensions_ui::Offer>,
+    /// The settings section to show once the settings page is ready.
+    settings_section: Option<&'static str>,
     /// A video recording waiting for the recorder page to load.
     pending_recording: Option<TabId>,
     /// What is being recorded and since when (Unix ms).
@@ -912,8 +1120,35 @@ impl Controller {
             recorder_ready: false,
             recbar: None,
             splitter: None,
+            split_drop: None,
+            split_drop_ready: false,
+            network: None,
+            network_ready: false,
+            network_pushed: Default::default(),
+            network_drag_start: None,
+            network_cdp: HashMap::new(),
+            tab_drag: None,
             recbar_ready: false,
             recbar_size: (360, 48),
+            vault: None,
+            vault_error: None,
+            autofill: None,
+            autofill_ready: false,
+            autofill_size: (280, 60),
+            autofill_state: None,
+            ext: crate::extensions::Registry::load(profile_dir),
+            ext_loaded: HashMap::new(),
+            ext_failures: HashMap::new(),
+            ext_waiting: 0,
+            window_requested: false,
+            ext_tab_ids: HashMap::new(),
+            ext_popup: None,
+            ext_popup_closed: None,
+            ext_card: None,
+            ext_card_ready: false,
+            ext_card_size: (330, 120),
+            ext_offer: None,
+            settings_section: None,
             pending_recording: None,
             recording: None,
             recording_saving: false,
@@ -965,6 +1200,7 @@ impl Controller {
                 }
             }
             Cmd::WindowResized => {
+                self.place_extension_popup();
                 self.place_palette();
                 self.place_peek();
                 self.place_recbar();
@@ -981,6 +1217,7 @@ impl Controller {
                 }
                 if self.session.active_tab() == Some(id) {
                     self.update_window_title();
+                    self.ext_follow_tab();
                 }
                 self.changed();
             }
@@ -1001,6 +1238,9 @@ impl Controller {
                 if local_changed {
                     // The striped frame comes or goes.
                     self.update_page_corners();
+                }
+                if self.session.active_tab() == Some(id) {
+                    self.ext_follow_tab();
                 }
                 self.changed();
             }
@@ -1187,6 +1427,41 @@ impl Controller {
                 }
             }
             Cmd::DevToolsGrip(_, drag) => self.drag_devtools(drag),
+            Cmd::NetworkCdp(tab, batch) => self.network_messages(tab, batch),
+            Cmd::ExtLoaded {
+                path,
+                expected,
+                purpose,
+                result,
+            } => self.extension_loaded(path, expected, purpose, result),
+            Cmd::ExtUninstalled { id, result } => self.extension_uninstalled(id, result),
+            Cmd::ExtFetched { id, result } => self.extension_fetched(id, result),
+            Cmd::ExtUpdated { id, path, version } => self.extension_updated(id, path, version),
+            Cmd::ExtUnpackedChosen(path) => self.load_unpacked_extension(path),
+            Cmd::ExtTabId(tab, chrome_id) => self.extension_tab_id(tab, chrome_id),
+            Cmd::ExtPopupSize(browser, width, height) => {
+                self.extension_popup_resized(browser, width, height)
+            }
+            Cmd::ExtPopupClosed(browser) => self.extension_popup_closed(browser),
+            Cmd::ExtStartupTimeout => {
+                self.ext_waiting = 0;
+                self.show_window_once();
+            }
+            Cmd::ExtCheckUpdates => {
+                self.check_extension_updates();
+                schedule(Timer::ExtensionsUpdate, extensions_ui::UPDATE_EVERY_MS);
+            }
+            Cmd::Focused(role) => {
+                // Clicking anywhere else closes an extension's popup.
+                if !matches!(role, Role::ExtPopup) {
+                    self.close_extension_popup();
+                }
+            }
+            Cmd::PageLoaded(tab) => self.inject_password_helper(tab),
+            Cmd::PasswordsPing(tab) => self.collect_password_news(tab),
+            Cmd::PasswordsNews(tab, context, events) => self.password_news(tab, context, events),
+            Cmd::PasswordConfirmed { id, copy, ok } => self.password_confirmed(id, copy, ok),
+            Cmd::BrowserCreated(Role::ExtPopup, browser) => self.extension_popup_created(browser),
             Cmd::BrowserCreated(role, browser) => {
                 // Round the page and command bar to sit inside the window
                 // frame (macOS draws the corners; elsewhere they stay square).
@@ -1214,6 +1489,23 @@ impl Controller {
                 match from.as_str() {
                     "sidebar" => self.sidebar_ready = true,
                     "peek" => self.peek_ready = true,
+                    "autofill" => {
+                        self.autofill_ready = true;
+                        self.push_autofill();
+                    }
+                    "splitdrop" => {
+                        self.split_drop_ready = true;
+                        self.place_split_drop();
+                    }
+                    "network" => {
+                        self.network_ready = true;
+                        self.network_pushed.borrow_mut().clear();
+                        self.push_network();
+                    }
+                    "extcard" => {
+                        self.ext_card_ready = true;
+                        self.push_ext_card();
+                    }
                     "recbar" => {
                         self.recbar_ready = true;
                         self.ui_dirty = true;
@@ -1271,13 +1563,14 @@ impl Controller {
                 }
             }
             UiCmd::CopyUrl { id } => self.copy_url(id),
-            UiCmd::Split { id, stacked } => {
-                if let Some(active) = self.session.active_tab().filter(|a| *a != id) {
-                    self.split = Some((active, id));
-                    self.split_stacked = stacked;
-                    self.ensure_live(id);
-                    self.layout_tabs();
-                }
+            UiCmd::Split { id, stacked, first } => {
+                self.tab_drag = None;
+                self.place_split_drop();
+                self.split_with(id, stacked, first);
+            }
+            UiCmd::TabDrag { id } => {
+                self.tab_drag = id;
+                self.place_split_drop();
             }
             UiCmd::Move {
                 id,
@@ -1336,6 +1629,78 @@ impl Controller {
                     }
                     _ => {}
                 }
+            }
+            UiCmd::NetworkGrip { phase, dx, dy } => self.drag_network(&phase, dx, dy),
+            UiCmd::NetConnect { tab } => self.network_connect(tab),
+            UiCmd::NetSend { tab, message } => self.network_send(tab, &message),
+            UiCmd::NetDisconnect { tab } => self.network_detach(tab),
+            UiCmd::AutofillSize { width, height } => {
+                self.autofill_size = (width.clamp(160, 480), height.clamp(32, 400));
+                self.place_autofill();
+            }
+            UiCmd::AutofillPick { id } => self.fill_login(id),
+            UiCmd::AutofillSave => self.save_offered_login(false),
+            UiCmd::AutofillNever => self.save_offered_login(true),
+            UiCmd::AutofillClose => self.hide_autofill(),
+            UiCmd::AutofillManage => {
+                self.hide_autofill();
+                self.handle_action(Action::ShowSettings);
+            }
+            UiCmd::PasswordReveal { id } => confirm_owner(id, false),
+            UiCmd::PasswordCopy { id } => confirm_owner(id, true),
+            UiCmd::PasswordDelete { id } => {
+                if let Some(vault) = self.vault() {
+                    let _ = vault.remove(id);
+                }
+                self.push_settings();
+            }
+            UiCmd::PasswordForgetNever { origin } => {
+                if let Some(vault) = self.vault() {
+                    let _ = vault.forget_never(&origin);
+                }
+                self.push_settings();
+            }
+            UiCmd::ExtCardSize { width, height } => {
+                self.ext_card_size = (width.clamp(200, 480), height.clamp(40, 500));
+                self.place_ext_card();
+            }
+            UiCmd::ExtAdd => self.ext_card_command("add"),
+            UiCmd::ExtConfirm => self.ext_card_command("confirm"),
+            UiCmd::ExtCancel => self.ext_card_command("cancel"),
+            UiCmd::ExtManage => self.ext_card_command("manage"),
+            UiCmd::ExtCardClose => self.ext_card_command("close"),
+            UiCmd::ExtOpen {
+                id,
+                x,
+                y,
+                width,
+                height,
+                peek,
+            } => self.open_extension_popup(
+                id,
+                Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                peek,
+            ),
+            UiCmd::ExtEnable { id, on } => self.set_extension_enabled(&id, on),
+            UiCmd::ExtPin { id, pinned } => self.set_extension_pinned(&id, pinned),
+            UiCmd::ExtOptions { id } => {
+                self.close_palette();
+                self.open_extension_options(&id);
+            }
+            UiCmd::ExtRemove { id } => self.remove_extension(id),
+            UiCmd::ExtLoadUnpacked => self.choose_unpacked_extension(),
+            UiCmd::ExtStore => {
+                self.close_palette();
+                self.open_tab(
+                    "https://chromewebstore.google.com/category/extensions",
+                    true,
+                    None,
+                );
             }
             UiCmd::RecbarSize { width, height } => {
                 self.recbar_size = (width.clamp(80, 900), height.clamp(24, 300));
@@ -1400,8 +1765,19 @@ impl Controller {
                 recording_clicks,
                 recording_keys,
                 recording_float,
+                passwords_enabled,
+                passwords_offer,
                 forget_grant,
             } => {
+                if let Some(on) = passwords_enabled {
+                    self.session.passwords_enabled = on;
+                    if !on {
+                        self.hide_autofill();
+                    }
+                }
+                if let Some(on) = passwords_offer {
+                    self.session.passwords_offer = on;
+                }
                 if let Some(on) = recording_clicks {
                     self.session.recording_clicks = on;
                 }
@@ -1441,7 +1817,13 @@ impl Controller {
                 self.changed();
                 self.push_settings();
             }
-            UiCmd::SettingsReady => self.push_settings(),
+            UiCmd::SettingsReady => {
+                self.vault();
+                match self.settings_section.take() {
+                    Some(section) => self.push_settings_with(json!({ "section": section })),
+                    None => self.push_settings(),
+                }
+            }
             UiCmd::BugReportStart { video } => self.start_bug_report(video),
             UiCmd::BugReportStop => self.stop_bug_report(),
             UiCmd::BugReportReady => self.push_bug_report(),
@@ -1645,6 +2027,20 @@ impl Controller {
                     self.activate(id);
                 }
             }
+            Action::Unsplit => {
+                if self.split.take().is_some() {
+                    self.layout_tabs();
+                    self.changed();
+                }
+            }
+            Action::DuplicateTab => {
+                if let Some(url) = active
+                    .and_then(|id| self.session.tab(id))
+                    .map(|t| t.url.clone())
+                {
+                    self.open_tab(&url, true, active);
+                }
+            }
             Action::ToggleSplit => {
                 if self.split.take().is_some() {
                     self.layout_tabs();
@@ -1694,6 +2090,7 @@ impl Controller {
                     }
                 }
             }
+            Action::Network => self.toggle_network(),
             Action::ShowHistory => self.show_history(false),
             Action::ShowSettings => {
                 if self.palette_mode == Some(PaletteMode::Settings) {
@@ -1742,7 +2139,7 @@ impl Controller {
                 self.ui_dirty = true;
                 self.push_settings();
             }
-            Action::RestartToUpdate => {
+            Action::RestartToUpdate | Action::Restart => {
                 crate::updater::relaunch_after_update();
                 self.handle_action(Action::Quit);
             }
@@ -1817,6 +2214,7 @@ impl Controller {
                     self.close_tab(id);
                 }
             }
+            Action::CloseExtensionPopup => self.close_extension_popup(),
             Action::Quit => {
                 if let Some(window) = &self.window {
                     window.close();
@@ -1847,6 +2245,84 @@ impl Controller {
             .chain(&space.tabs)
             .map(|t| t.id)
             .collect()
+    }
+
+    /// Shows `id` in split view next to the tab you're on (or, if it is the
+    /// tab you're on, next to the one it's split with or the last one used).
+    fn split_with(&mut self, id: TabId, stacked: bool, first: bool) {
+        if self.session.tab(id).is_none() {
+            return;
+        }
+        let partner = match self.session.active_tab() {
+            Some(active) if active != id => Some(active),
+            _ => {
+                let other = self.split.and_then(|(a, b)| match id {
+                    _ if a == id => Some(b),
+                    _ if b == id => Some(a),
+                    _ => None,
+                });
+                let order = self.tab_order();
+                other.or_else(|| {
+                    self.mru
+                        .iter()
+                        .copied()
+                        .find(|t| *t != id && order.contains(t))
+                })
+            }
+        };
+        let Some(partner) = partner else {
+            return;
+        };
+        self.split = Some(if first { (id, partner) } else { (partner, id) });
+        self.split_stacked = stacked;
+        self.ensure_live(id);
+        self.ensure_live(partner);
+        self.layout_tabs();
+        self.changed();
+    }
+
+    /// The drop card over the page while a tab is dragged from the sidebar.
+    fn place_split_drop(&mut self) {
+        let wanted = self.tab_drag.filter(|id| {
+            let active = self.session.active_tab();
+            active.is_some() && (active != Some(*id) || self.split.is_some() || self.mru.len() > 1)
+        });
+        let Some(id) = wanted else {
+            if let Some((_, Some(overlay))) = &self.split_drop {
+                overlay.set_visible(0);
+            }
+            return;
+        };
+        if self.split_drop.is_none() {
+            let Some(window) = &self.window else {
+                return;
+            };
+            let view =
+                views::create_browser_view(Role::SplitDrop, SPLIT_DROP_URL, self.background());
+            let overlay =
+                window.add_overlay_view(Some(&mut View::from(&view)), DockingMode::CUSTOM, 1);
+            self.split_drop = Some((view, overlay));
+        }
+        let Some((view, Some(overlay))) = &self.split_drop else {
+            return;
+        };
+        if self.split_drop_ready {
+            let state = json!({ "id": id, "hue": self.session.space().hue });
+            run_js(view, &format!("window.circle&&circle.render({state})"));
+        }
+        let area = self.content.bounds();
+        let (width, height) = (340.min(area.width), 190.min(area.height));
+        overlay.set_bounds(Some(&Rect {
+            x: area.x + (area.width - width) / 2,
+            y: area.y + (area.height - height) / 2,
+            width,
+            height,
+        }));
+        overlay.set_visible(1);
+        #[cfg(target_os = "macos")]
+        if let Some(browser) = view.browser() {
+            crate::mac::round_browser_window(&browser, 14.0, crate::mac::ALL_CORNERS);
+        }
     }
 
     fn shown_tabs(&self) -> Vec<TabId> {
@@ -1963,6 +2439,8 @@ impl Controller {
     }
 
     fn destroy_live(&mut self, id: TabId) {
+        self.ext_tab_ids.remove(&id);
+        self.network_detach(id);
         let Some(live) = self.live.remove(&id) else {
             return;
         };
@@ -2002,6 +2480,8 @@ impl Controller {
         for (tab, view) in &self.docked_devtools {
             view.set_visible((Some(*tab) == active) as c_int);
         }
+        self.autofill_follow_tab();
+        self.ext_follow_tab();
         self.content.layout();
         self.update_page_corners();
         self.update_window_title();
@@ -2039,6 +2519,7 @@ impl Controller {
             pages.extend(
                 self.docked_devtools
                     .values()
+                    .chain(&self.network)
                     .filter(|view| view.is_visible() != 0)
                     .map(|view| (offset(view.bounds(), content.x, content.y), false)),
             );
@@ -2312,6 +2793,7 @@ impl Controller {
                 self.splitter = Some((handle, overlay));
             }
             self.docked_devtools.insert(tab, view);
+            self.keep_network_last();
             self.apply_layout();
             self.layout_tabs();
         }
@@ -2504,8 +2986,23 @@ impl Controller {
             "recording_keys": self.session.recording_keys,
             "recording_float": self.session.recording_float,
             "hue": self.session.space().hue,
+            "passwords_enabled": self.session.passwords_enabled,
+            "passwords_offer": self.session.passwords_offer,
+            "passwords": self.password_list(),
+            "passwords_never": self.vault.as_ref().map(|v| v.never_list().to_vec()).unwrap_or_default(),
+            "passwords_error": self.vault_error,
             "update": self.update_json(),
+            "extensions": self.extensions_settings_json(),
         })
+    }
+
+    /// Opens the settings panel at a section.
+    fn show_settings_section(&mut self, section: &'static str) {
+        self.settings_section = Some(section);
+        if self.palette_mode != Some(PaletteMode::Settings) {
+            self.open_palette(PaletteMode::Settings);
+        }
+        self.push_settings_with(json!({ "section": section }));
     }
 
     fn start_bug_report(&mut self, video: bool) {
@@ -2578,6 +3075,20 @@ impl Controller {
 
     /// Sends the current settings to any open settings page.
     fn push_settings(&self) {
+        self.push_settings_with(Value::Null);
+    }
+
+    /// Pushes the settings with one-off `extra` fields (a revealed password).
+    fn push_settings_with(&self, extra: Value) {
+        let json = || {
+            let mut settings = self.settings_json();
+            if let (Some(settings), Value::Object(extra)) =
+                (settings.as_object_mut(), extra.clone())
+            {
+                settings.extend(extra);
+            }
+            settings
+        };
         let mut code = None;
         for (id, live) in &self.live {
             if !self
@@ -2587,16 +3098,15 @@ impl Controller {
             {
                 continue;
             }
-            let code = code.get_or_insert_with(|| {
-                format!("window.circle&&circle.render({})", self.settings_json())
-            });
+            let code =
+                code.get_or_insert_with(|| format!("window.circle&&circle.render({})", json()));
             run_js(&live.view, code);
         }
         // The settings panel lives in the command bar's overlay.
         if self.palette_mode == Some(PaletteMode::Settings) && self.palette_ready {
             run_js(
                 &self.palette,
-                &format!("window.circle&&circle.settings({})", self.settings_json()),
+                &format!("window.circle&&circle.settings({})", json()),
             );
         }
     }
@@ -2758,6 +3268,11 @@ impl Controller {
         } else {
             self.session.devtools_width
         });
+        views::set_network_size(if bottom {
+            self.session.network_height
+        } else {
+            self.session.network_width
+        });
         let content = BoxLayoutSettings {
             horizontal: (!bottom) as c_int,
             inside_border_insets: Insets {
@@ -2773,7 +3288,7 @@ impl Controller {
         if let Some(layout) = self.content.set_to_box_layout(Some(&content)) {
             layout.set_flex_for_view(Some(&mut View::from(&self.pages)), 1);
         }
-        for view in self.docked_devtools.values() {
+        for view in self.docked_devtools.values().chain(&self.network) {
             view.invalidate_layout();
         }
         window.layout();
@@ -3031,6 +3546,8 @@ impl Controller {
             overlay.set_visible(0);
         }
         self.place_splitter();
+        self.place_autofill();
+        self.place_ext_card();
         if mode == PaletteMode::Find {
             if let Some(host) = self.session.active_tab().and_then(|id| self.host(id)) {
                 host.stop_finding(1);
@@ -3133,6 +3650,8 @@ impl Controller {
 
     fn place_palette(&self) {
         self.place_splitter();
+        self.place_autofill();
+        self.place_ext_card();
         let (Some(overlay), Some(mode)) = (&self.overlay, self.palette_mode) else {
             return;
         };
@@ -3242,6 +3761,7 @@ impl Controller {
             run_js(&self.palette, &code);
         }
         self.push_settings();
+        self.push_network();
     }
 
     fn tab_json(&self, tab: &crate::model::Tab) -> Value {
@@ -3333,6 +3853,7 @@ impl Controller {
             "toast": self.toast.as_ref().map(|(nonce, text)| json!({ "nonce": nonce, "text": text })),
             "devtools_dock": self.session.devtools_dock,
             "update": self.update_json(),
+            "extensions": self.extensions_json(),
             "record_prompt": self.record_prompt.map(|format| json!({
                 "format": format,
                 "clicks": self.session.recording_clicks,
@@ -3582,6 +4103,11 @@ pub fn note_agent_activity() {
     });
     schedule(Timer::AgentIdle, SHOW_FOR.as_millis() as i64 + 500);
 }
+
+mod extensions_ui;
+mod network_ui;
+mod passwords_ui;
+use passwords_ui::confirm_owner;
 
 #[cfg(test)]
 mod tests {

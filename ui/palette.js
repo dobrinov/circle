@@ -31,7 +31,8 @@
   const COMMANDS = [
     ["New Space", () => circle.send({ cmd: "new_space" })],
     ["Toggle Sidebar", () => circle.action("toggle_sidebar")],
-    ["Split View", () => circle.action("toggle_split")],
+    [() => (state?.split ? "Separate Split View" : "Split View"), () => circle.action(state?.split ? "unsplit" : "toggle_split")],
+    ["Duplicate Tab", () => circle.action("duplicate_tab")],
     ["Split View: Switch Direction (Side by Side / Stacked)", () => circle.action("toggle_split_direction")],
     ["Pin or Unpin Tab", () => circle.action("toggle_pin")],
     ["Copy URL", () => circle.action("copy_url")],
@@ -45,6 +46,7 @@
     ["Zoom Out", () => circle.action({ zoom: -1 })],
     ["Actual Size", () => circle.action({ zoom: 0 })],
     ["Developer Tools", () => circle.action("dev_tools")],
+    ["Network", () => circle.action("network")],
     ["View Page Source", () => circle.action("view_source")],
     [() => (state?.recording ? "Stop Recording" : "Record This Tab…"), () => circle.action(state?.recording ? "stop_recording" : { record: "video" })],
     ["Record This Tab as a GIF…", () => circle.action({ record: "gif" })],

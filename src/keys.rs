@@ -67,6 +67,7 @@ pub fn action_for(event: &KeyEvent) -> Option<Action> {
         (m, c) if m == PRIMARY | SHIFT && c == key('T') => Action::ReopenClosed,
         (PRIMARY, c) if c == key('S') => Action::ToggleSidebar,
         (PRIMARY, c) if c == key('D') => Action::TogglePin,
+        (m, c) if m == PRIMARY | SHIFT && c == key('D') => Action::DuplicateTab,
         (PRIMARY, c) if c == key('R') => Action::Reload,
         (0, VK_F5) => Action::Reload,
         (m, c) if m == PRIMARY | SHIFT && c == key('R') => Action::ReloadHard,
@@ -94,6 +95,9 @@ pub fn action_for(event: &KeyEvent) -> Option<Action> {
         (m, c) if !mac && m == CTRL | SHIFT && c == key('I') => Action::DevTools,
         (0, VK_F12) => Action::DevTools,
         (m, c) if m == PRIMARY | ALT && c == key('U') => Action::ViewSource,
+        // Not Ctrl+Alt+E elsewhere: that's AltGr+E, which types é or ę.
+        (m, c) if mac && m == CMD | ALT && c == key('E') => Action::Network,
+        (m, c) if !mac && m == CTRL | SHIFT && c == key('E') => Action::Network,
         (m, c) if m == PRIMARY | SHIFT && c == key('C') => Action::CopyUrl,
         (m, c) if mac && m == CMD | CTRL && c == key('F') => Action::Fullscreen,
         (0, VK_F11) if !mac => Action::Fullscreen,
@@ -128,6 +132,8 @@ mod tests {
             Some(Action::OpenPalette(PaletteMode::Spotlight))
         );
         assert_eq!(press(PRIMARY, key('3')), Some(Action::TabIndex(2)));
+        assert_eq!(press(PRIMARY | SHIFT, key('D')), Some(Action::DuplicateTab));
+        assert_eq!(press(PRIMARY, key('D')), Some(Action::TogglePin));
         assert_eq!(
             press(PRIMARY | SHIFT, VK_OEM_PLUS),
             Some(Action::ToggleSplit)
@@ -146,6 +152,8 @@ mod tests {
             press(PRIMARY | SHIFT, VK_OEM_PERIOD),
             Some(Action::EndPrivate)
         );
+        let network = if cfg!(target_os = "macos") { CMD | ALT } else { CTRL | SHIFT };
+        assert_eq!(press(network, key('E')), Some(Action::Network));
         assert_eq!(press(0, key('T')), None);
     }
 

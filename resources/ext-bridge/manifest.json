@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Circle",
+  "version": "1.0",
+  "description": "Tells Circle which tab each page is in, so other extensions' popups know the current tab.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsRlfkqvk5PLUPgXIkcC4xmxjatt8lkRNM9BN6qVVVIiAXuiZZ1ZXg5l1CW8JiojVWDitxyrYY3cvvyMiPvPzX6TLhPE3s0imfbteval3TRaakK9jFR3AJ+LpqVaOUmbtYoVhVJkiy6bXtOB3SEXZtUX6uU9igVegVSpQvx1rwCV1iZZaBITDI8C1/S2MwNICxxIjKN6MTThJOfZsVo4LLE7BOWwFOhj6mspTiGGbR9Mhz6EVWI6UNRjd7FdopBADw4Q0hhzQiiCRAw5aEotr9spcqfxi9+Sw1CEYL+VGhgEe73fOUrH0I9Ap85uxwxhvxDlMdB0yqWf4rR6t53p9gwIDAQAB",
+  "background": { "service_worker": "sw.js" },
+  "content_scripts": [
+    { "matches": ["http://*/*", "https://*/*"], "js": ["cs.js"], "run_at": "document_start" }
+  ]
+}

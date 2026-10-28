@@ -122,7 +122,7 @@ fn report(status: Status) {
 
 /// The system's `curl` (macOS, Linux and Windows 10+ ship it), which
 /// follows redirects and honours proxy settings.
-fn curl() -> Command {
+pub(crate) fn curl() -> Command {
     let mut cmd = Command::new(if cfg!(windows) { "curl.exe" } else { "curl" });
     cmd.args([
         "--silent",
@@ -477,14 +477,79 @@ pub fn relaunch_after_update() {
     RELAUNCH.store(true, Ordering::SeqCst);
 }
 
-/// Called as Circle exits: installs a downloaded update, if any.
+/// Called as Circle exits: installs a downloaded update, if any, and
+/// starts Circle again if asked to.
 pub fn install_after_quit(dir: &Path) {
+    let relaunch = RELAUNCH.load(Ordering::SeqCst);
     if let Some(update) = pending(dir)
         && can_self_update()
-        && let Err(err) = install_on_exit(&update, RELAUNCH.load(Ordering::SeqCst))
     {
-        eprintln!("circle: couldn't install the update: {err}");
+        match install_on_exit(&update, relaunch) {
+            Ok(()) => return,
+            Err(err) => eprintln!("circle: couldn't install the update: {err}"),
+        }
     }
+    if relaunch && let Err(err) = relaunch_on_exit() {
+        eprintln!("circle: couldn't restart: {err}");
+    }
+}
+
+/// Starts Circle again once this process has exited (it holds the profile
+/// until then).
+fn relaunch_on_exit() -> Result<(), String> {
+    let pid = std::process::id();
+    #[cfg(not(target_os = "windows"))]
+    {
+        let start = match install_location() {
+            Some(app) if cfg!(target_os = "macos") => {
+                // A test profile stays a test profile.
+                let profile = std::env::var("CIRCLE_PROFILE_DIR")
+                    .map(|p| format!(" --env CIRCLE_PROFILE_DIR={}", shell_quote(&p)))
+                    .unwrap_or_default();
+                format!("open -n{profile} {}", shell_quote(&app.to_string_lossy()))
+            }
+            _ => {
+                let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+                format!(
+                    "nohup {} >/dev/null 2>&1 &",
+                    shell_quote(&exe.to_string_lossy())
+                )
+            }
+        };
+        let script = format!("while kill -0 {pid} 2>/dev/null; do sleep 0.2; done\n{start}\n");
+        Command::new("/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let script = format!(
+            "@echo off\r\n\
+             :wait\r\n\
+             tasklist /FI \"PID eq {pid}\" | find \"{pid}\" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n\
+             start \"\" \"{}\"\r\n\
+             del \"%~f0\"\r\n",
+            exe.display()
+        );
+        let path = std::env::temp_dir().join(format!("circle-restart-{pid}.cmd"));
+        fs::write(&path, script).map_err(|e| e.to_string())?;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        Command::new("cmd")
+            .arg("/C")
+            .arg(&path)
+            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Starts installing `update` once Circle exits, relaunching it afterwards

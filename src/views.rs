@@ -25,6 +25,15 @@ thread_local! {
     static DEVTOOLS_SIZE: std::cell::Cell<c_int> = const { std::cell::Cell::new(480) };
 }
 
+thread_local! {
+    static NETWORK_SIZE: std::cell::Cell<c_int> = const { std::cell::Cell::new(640) };
+}
+
+/// The Network tool's width (docked right) or height (docked bottom).
+pub fn set_network_size(size: c_int) {
+    NETWORK_SIZE.set(size);
+}
+
 /// The docked DevTools' width (docked right) or height (docked bottom).
 pub fn set_devtools_size(size: c_int) {
     DEVTOOLS_SIZE.set(size);
@@ -119,7 +128,7 @@ wrap_browser_view_delegate! {
 
     impl ViewDelegate {
         fn on_layout_changed(&self, _view: Option<&mut View>, _new_bounds: Option<&Rect>) {
-            if let Role::Tab(_) | Role::DevTools(_) = self.role {
+            if let Role::Tab(_) | Role::DevTools(_) | Role::Network = self.role {
                 controller::dispatch(Cmd::PageLayout);
             }
         }
@@ -128,6 +137,7 @@ wrap_browser_view_delegate! {
             match self.role {
                 // Box layouts read only the main axis, so one value serves both.
                 Role::DevTools(_) => Size { width: DEVTOOLS_SIZE.get(), height: DEVTOOLS_SIZE.get() },
+                Role::Network => Size { width: NETWORK_SIZE.get(), height: NETWORK_SIZE.get() },
                 Role::Sidebar => Size { width: SIDEBAR_CURRENT_WIDTH.get(), height: 600 },
                 _ => Size { width: 600, height: 400 },
             }

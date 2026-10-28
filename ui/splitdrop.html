@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Circle Split View</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      /* Shown over the page while a tab is dragged from the sidebar: drop it
+         on a half to open it there, next to the page. */
+      html, body { margin: 0; height: 100%; background: var(--panel); color: var(--panel-fg); overflow: hidden; }
+      body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 14px; box-sizing: border-box; }
+      h1 { margin: 0; font-size: 13px; font-weight: 650; }
+      .layouts { display: flex; gap: 14px; }
+      .layout { display: flex; gap: 4px; width: 132px; height: 84px; padding: 4px; border-radius: 10px; background: var(--panel-select); box-sizing: border-box; }
+      .layout.stacked { flex-direction: column; }
+      .half { flex: 1; border-radius: 6px; background: var(--panel); display: grid; place-items: center; font-size: 11px; color: var(--panel-muted);
+        transition: background 0.1s, color 0.1s; }
+      .half.page { opacity: 0.55; }
+      .half.over { background: hsl(var(--hue) 70% 55%); color: white; opacity: 1; }
+      p { margin: 0; font-size: 11.5px; color: var(--panel-muted); }
+    </style>
+  </head>
+  <body>
+    <h1>Drop to open in split view</h1>
+    <div class="layouts">
+      <div class="layout" aria-label="Side by side">
+        <div class="half" data-zone="left">Here</div><div class="half" data-zone="right">Here</div>
+      </div>
+      <div class="layout stacked" aria-label="Stacked">
+        <div class="half" data-zone="top">Here</div><div class="half" data-zone="bottom">Here</div>
+      </div>
+    </div>
+    <p>The tab you're on takes the other half.</p>
+    <script src="common.js"></script>
+    <script src="splitdrop.js"></script>
+  </body>
+</html>

@@ -89,10 +89,31 @@
         border-radius: var(--radius);
         background: var(--hover);
         color: var(--fg);
-        margin-bottom: 10px;
-        flex: none;
+        flex: 1;
+        min-width: 0;
         overflow: hidden;
       }
+      #address { display: flex; gap: 4px; margin-bottom: 10px; flex: none; }
+      /* Extension buttons: the pinned ones, then the puzzle menu. */
+      #exts { display: flex; gap: 2px; }
+      #exts:empty { display: none; }
+      #exts button {
+        width: 30px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--radius);
+        color: var(--muted);
+      }
+      #exts button:hover, #exts button.open { background: var(--hover); color: var(--fg); }
+      #exts button.open { background: var(--active); }
+      #exts img, #menu .ext img { width: 16px; height: 16px; object-fit: contain; }
+      #exts svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linejoin: round; }
+      #menu .ext { display: flex; align-items: center; gap: 8px; }
+      #menu .ext .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #menu .ext .pin { opacity: 0.5; font-size: 11px; }
+      #menu .ext:hover .pin { opacity: 1; }
+      #menu.exts { min-width: 230px; }
       #url:hover { background: var(--active); }
       #url .text { flex: 1; }
       #url .lock { width: 12px; height: 12px; stroke: var(--muted); fill: none; stroke-width: 2; }
@@ -749,7 +770,10 @@
       </button>
     </div>
 
-    <div id="url" class="no-drag" title="Edit address (⌘L)"></div>
+    <div id="address">
+      <div id="url" class="no-drag" title="Edit address (⌘L)"></div>
+      <div id="exts" class="no-drag"></div>
+    </div>
     <div id="private-note" class="no-drag" hidden>Nothing here is saved: no history, cookies or cache. End it to close everything.</div>
     <div id="prompts"></div>
 

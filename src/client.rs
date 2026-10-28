@@ -30,6 +30,19 @@ pub enum Role {
     RecBar,
     /// The drag handle in the gap between the pages and docked DevTools.
     Splitter,
+    /// The Network tool, docked next to the pages; it inspects the active tab.
+    Network,
+    /// Password suggestions under a login field, or the save prompt.
+    Autofill,
+    /// The card for dropping a dragged tab into split view.
+    SplitDrop,
+    /// The card on Chrome Web Store pages that adds extensions to Circle.
+    ExtCard,
+    /// An extension's popup, opened from its button in the sidebar.
+    ExtPopup,
+    /// A Chrome window an extension opened (`chrome.windows.create`); its
+    /// page moves to a Circle tab and the window closes.
+    Stray,
 }
 
 /// Prefix of the console messages the docked DevTools' resize grip sends.
@@ -194,8 +207,24 @@ wrap_client! {
             Some(CircleDragHandler::new(self.role))
         }
 
+        fn focus_handler(&self) -> Option<FocusHandler> {
+            Some(CircleFocusHandler::new(self.role))
+        }
+
         fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
             Some(CircleContextMenuHandler::new(self.role))
+        }
+    }
+}
+
+wrap_focus_handler! {
+    struct CircleFocusHandler {
+        role: Role,
+    }
+
+    impl FocusHandler {
+        fn on_got_focus(&self, _browser: Option<&mut Browser>) {
+            controller::dispatch(Cmd::Focused(self.role));
         }
     }
 }
@@ -262,10 +291,26 @@ wrap_display_handler! {
                     url: Some(place),
                 });
             }
+            let message = string(message);
+            // Circle's bridge extension tells each page's Chrome tab id.
+            if let Role::Tab(tab) = self.role
+                && let Some(id) = message.strip_prefix(crate::extensions::TAB_PING)
+            {
+                if let Ok(id) = id.trim().parse() {
+                    controller::dispatch(Cmd::ExtTabId(tab, id));
+                }
+                return 1;
+            }
+            // A page's password helper has news (fetched from its world).
+            if let Role::Tab(tab) = self.role
+                && message == crate::passwords::PING
+            {
+                controller::dispatch(Cmd::PasswordsPing(tab));
+                return 1;
+            }
             let Role::DevTools(tab) = self.role else {
                 return 0;
             };
-            let message = string(message);
             if let Some(action) = parse_devtools_button(&message) {
                 controller::dispatch(Cmd::Action(action));
                 return 1;
@@ -276,6 +321,16 @@ wrap_display_handler! {
                     1
                 }
                 None => 0,
+            }
+        }
+
+        fn on_auto_resize(&self, browser: Option<&mut Browser>, new_size: Option<&Size>) -> c_int {
+            match (self.role, browser, new_size) {
+                (Role::ExtPopup, Some(browser), Some(size)) => {
+                    controller::dispatch(Cmd::ExtPopupSize(browser.identifier(), size.width, size.height));
+                    1
+                }
+                _ => 0,
             }
         }
 
@@ -346,11 +401,15 @@ wrap_life_span_handler! {
                     | Role::Start
                     | Role::RecBar
                     | Role::Splitter
+                    | Role::Autofill
+                    | Role::SplitDrop
+                    | Role::ExtCard
+                    | Role::Network
             ) {
                 scheme::allow_browser(browser.identifier());
             }
             BROWSERS.with(|b| b.borrow_mut().push(browser.clone()));
-            if matches!(self.role, Role::Tab(_) | Role::Palette) {
+            if matches!(self.role, Role::Tab(_) | Role::Palette | Role::ExtPopup) {
                 controller::dispatch(Cmd::BrowserCreated(self.role, browser));
             }
         }
@@ -362,7 +421,7 @@ wrap_life_span_handler! {
         /// window is closing anyway.
         fn do_close(&self, _browser: Option<&mut Browser>) -> c_int {
             match self.role {
-                Role::Popup => 0,
+                Role::Popup | Role::Stray => 0,
                 _ => (!controller::is_window_closing()) as c_int,
             }
         }
@@ -373,6 +432,10 @@ wrap_life_span_handler! {
             };
             let id = browser.identifier();
             scheme::forget_browser(id);
+            crate::remote::forget_browser(id);
+            if self.role == Role::ExtPopup {
+                controller::dispatch(Cmd::ExtPopupClosed(id));
+            }
             BROWSERS.with(|b| b.borrow_mut().retain(|b| b.identifier() != id));
             controller::on_browser_closed();
         }
@@ -391,12 +454,30 @@ wrap_request_handler! {
         /// state Circle pushes there and could pass for Circle's UI.
         fn on_before_browse(
             &self,
-            _browser: Option<&mut Browser>,
+            browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             request: Option<&mut Request>,
             _user_gesture: c_int,
             _is_redirect: c_int,
         ) -> c_int {
+            let url = request.as_ref().map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
+            match self.role {
+                // An extension's popup shows only extension pages.
+                Role::ExtPopup => {
+                    return (url != "about:blank" && !url.starts_with("chrome-extension://")) as c_int;
+                }
+                // Circle has no Chrome windows: open the page in a tab.
+                Role::Stray => {
+                    if !url.is_empty() && url != "about:blank" && !url.starts_with("chrome://newtab") {
+                        controller::dispatch(Cmd::OpenUrl { url, background: false, opener: None });
+                    }
+                    if let Some(host) = browser.and_then(|b| b.host()) {
+                        host.close_browser(1);
+                    }
+                    return 1;
+                }
+                _ => {}
+            }
             let ui = matches!(
                 self.role,
                 Role::Sidebar
@@ -406,8 +487,11 @@ wrap_request_handler! {
                     | Role::Start
                     | Role::RecBar
                     | Role::Splitter
+                    | Role::Autofill
+                    | Role::SplitDrop
+                    | Role::ExtCard
+                    | Role::Network
             );
-            let url = request.map(|r| CefString::from(&r.url()).to_string()).unwrap_or_default();
             (ui && !url.starts_with("circle://ui/")) as c_int
         }
 
@@ -441,8 +525,10 @@ wrap_load_handler! {
     impl LoadHandler {
         fn on_load_end(&self, _browser: Option<&mut Browser>, frame: Option<&mut Frame>, _status: c_int) {
             let is_main = frame.is_some_and(|f| f.is_main() != 0);
-            if let (Role::DevTools(tab), true) = (self.role, is_main) {
-                controller::dispatch(Cmd::DevToolsLoaded(tab));
+            match (self.role, is_main) {
+                (Role::DevTools(tab), true) => controller::dispatch(Cmd::DevToolsLoaded(tab)),
+                (Role::Tab(tab), true) => controller::dispatch(Cmd::PageLoaded(tab)),
+                _ => {}
             }
         }
 
@@ -538,7 +624,12 @@ wrap_keyboard_handler! {
 /// The Circle action a key press triggers in a browser with `role`.
 fn shortcut_action(role: Role, event: Option<&KeyEvent>) -> Option<Action> {
     match role {
-        Role::Popup => None,
+        Role::Popup | Role::Stray => None,
+        // Escape closes an extension's popup (like clicking elsewhere).
+        Role::ExtPopup => event
+            .filter(|e| e.windows_key_code == 27 && e.type_ == KeyEventType::RAWKEYDOWN)
+            .map(|_| Action::CloseExtensionPopup)
+            .or_else(|| event.and_then(keys::action_for)),
         // DevTools has its own shortcuts; only keep the one that closes it.
         Role::DevTools(_) => event
             .and_then(keys::action_for)

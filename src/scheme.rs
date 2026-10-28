@@ -100,6 +100,36 @@ const ASSETS: &[(&str, &str, &[u8])] = &[
         include_bytes!("../ui/settings.js"),
     ),
     (
+        "/autofill.html",
+        "text/html",
+        include_bytes!("../ui/autofill.html"),
+    ),
+    (
+        "/autofill.js",
+        "text/javascript",
+        include_bytes!("../ui/autofill.js"),
+    ),
+    (
+        "/splitdrop.html",
+        "text/html",
+        include_bytes!("../ui/splitdrop.html"),
+    ),
+    (
+        "/splitdrop.js",
+        "text/javascript",
+        include_bytes!("../ui/splitdrop.js"),
+    ),
+    (
+        "/extcard.html",
+        "text/html",
+        include_bytes!("../ui/extcard.html"),
+    ),
+    (
+        "/extcard.js",
+        "text/javascript",
+        include_bytes!("../ui/extcard.js"),
+    ),
+    (
         "/splitter.html",
         "text/html",
         include_bytes!("../ui/splitter.html"),
@@ -160,6 +190,16 @@ const ASSETS: &[(&str, &str, &[u8])] = &[
         include_bytes!("../ui/history.js"),
     ),
     (
+        "/network.html",
+        "text/html",
+        include_bytes!("../ui/network.html"),
+    ),
+    (
+        "/network.js",
+        "text/javascript",
+        include_bytes!("../ui/network.js"),
+    ),
+    (
         "/icon.png",
         "image/png",
         include_bytes!("../resources/icons/circle-128.png"),
@@ -201,6 +241,21 @@ const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; \
     style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src 'self' blob: data:; \
     connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; \
     frame-ancestors 'self'";
+
+fn icon_mime(path: &std::path::Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        // Served with a policy that blocks script (see `response_headers`).
+        "svg" => "image/svg+xml",
+        _ => return None,
+    })
+}
 
 fn response(status: c_int, mime: &'static str, data: Vec<u8>) -> Option<ResourceHandler> {
     Some(BytesResource::new(
@@ -286,6 +341,12 @@ wrap_scheme_handler_factory! {
                                     | UiCmd::ClearBrowsingData { .. }
                                     | UiCmd::Settings { .. }
                                     | UiCmd::SettingsReady
+                                    | UiCmd::ExtEnable { .. }
+                                    | UiCmd::ExtPin { .. }
+                                    | UiCmd::ExtOptions { .. }
+                                    | UiCmd::ExtRemove { .. }
+                                    | UiCmd::ExtLoadUnpacked
+                                    | UiCmd::ExtStore
                                     | UiCmd::BugReportStart { .. }
                                     | UiCmd::BugReportStop
                                     | UiCmd::BugReportReady
@@ -307,6 +368,18 @@ wrap_scheme_handler_factory! {
                         eprintln!("circle: bad UI command: {err}");
                         response(400, "text/plain", err.to_string().into_bytes())
                     }
+                };
+            }
+
+            // An extension's icon, for its button and in Settings.
+            if let Some(id) = path.strip_prefix("/ext-icon/") {
+                return match crate::extensions::icon_file(id).and_then(|f| {
+                    let mime = icon_mime(&f)?;
+                    let data = std::fs::read(&f).ok().filter(|d| d.len() <= 1 << 20)?;
+                    Some((mime, data))
+                }) {
+                    Some((mime, data)) => response(200, mime, data),
+                    None => response(404, "text/plain", b"not found".to_vec()),
                 };
             }
 
@@ -353,10 +426,16 @@ wrap_resource_handler! {
                     Some(&CefString::from("no-store")),
                     1,
                 );
-                if self.mime == "text/html" {
+                // An extension's SVG icon, opened on its own, runs nothing.
+                let policy = match self.mime {
+                    "text/html" => Some(CONTENT_SECURITY_POLICY),
+                    "image/svg+xml" => Some("default-src 'none'; style-src 'unsafe-inline'; sandbox"),
+                    _ => None,
+                };
+                if let Some(policy) = policy {
                     response.set_header_by_name(
                         Some(&CefString::from("Content-Security-Policy")),
-                        Some(&CefString::from(CONTENT_SECURITY_POLICY)),
+                        Some(&CefString::from(policy)),
                         1,
                     );
                 }

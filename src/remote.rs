@@ -241,15 +241,23 @@ pub fn call_on_ui<T: Send + 'static>(
 // ----- the CDP bridge (UI thread only) ---------------------------------------
 
 struct Attachment {
-    _registration: Option<Registration>,
     clients: HashMap<u64, Sender<String>>,
 }
+
+/// A reply to one of Circle's own CDP commands.
+type Reply = Box<dyn FnOnce(Result<Value, String>)>;
 
 #[derive(Default)]
 struct Bridge {
     attachments: HashMap<i32, Attachment>,
     /// Rewritten request id → (client, the client's original id).
     pending: HashMap<i64, (u64, Value)>,
+    /// Circle's own commands (no client), waiting for their replies.
+    own: HashMap<i64, Reply>,
+    /// The one DevTools observer per browser, shared by clients and Circle.
+    observers: HashMap<i32, Option<Registration>>,
+    /// Browsers Circle itself sends commands to, which keep their observer.
+    own_browsers: std::collections::HashSet<i32>,
     next_id: i64,
     next_client: u64,
 }
@@ -260,22 +268,22 @@ thread_local! {
 
 /// Attaches a client to a tab's browser. Returns the client id and browser id.
 fn attach(tab: TabId, tx: Sender<String>) -> Option<(u64, i32)> {
-    let browser = controller::tab_browser(tab)?;
+    attach_browser(&controller::tab_browser(tab)?, tx)
+}
+
+fn attach_browser(browser: &Browser, tx: Sender<String>) -> Option<(u64, i32)> {
     let browser_id = browser.identifier();
     BRIDGE.with(|bridge| {
         let mut bridge = bridge.borrow_mut();
         bridge.next_client += 1;
         let client = bridge.next_client;
-        let attachment = bridge.attachments.entry(browser_id).or_insert_with(|| {
-            let mut observer = BridgeObserver::new();
-            let registration = browser
-                .host()
-                .and_then(|host| host.add_dev_tools_message_observer(Some(&mut observer)));
-            Attachment {
-                _registration: registration,
+        observe(&mut bridge, browser);
+        let attachment = bridge
+            .attachments
+            .entry(browser_id)
+            .or_insert_with(|| Attachment {
                 clients: HashMap::new(),
-            }
-        });
+            });
         attachment.clients.insert(client, tx);
         Some((client, browser_id))
     })
@@ -288,8 +296,11 @@ fn detach(browser_id: i32, client: u64) {
         if let Some(attachment) = bridge.attachments.get_mut(&browser_id) {
             attachment.clients.remove(&client);
             if attachment.clients.is_empty() {
-                // Dropping the registration removes the observer.
                 bridge.attachments.remove(&browser_id);
+                if !bridge.own_browsers.contains(&browser_id) {
+                    // Dropping the registration removes the observer.
+                    bridge.observers.remove(&browser_id);
+                }
             }
         }
     });
@@ -297,6 +308,13 @@ fn detach(browser_id: i32, client: u64) {
 
 /// Forwards one CDP request from a client, rewriting its id.
 fn forward(tab: TabId, client: u64, text: &str) -> Result<(), String> {
+    let host = controller::tab_browser(tab)
+        .and_then(|b| b.host())
+        .ok_or("the tab is gone")?;
+    forward_to(&host, client, text)
+}
+
+fn forward_to(host: &BrowserHost, client: u64, text: &str) -> Result<(), String> {
     let mut message: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let object = message.as_object_mut().ok_or("expected a JSON object")?;
     let original = object.get("id").cloned().ok_or("missing id")?;
@@ -308,18 +326,78 @@ fn forward(tab: TabId, client: u64, text: &str) -> Result<(), String> {
         id
     });
     object.insert("id".into(), json!(id));
-    let host = controller::tab_browser(tab)
-        .and_then(|b| b.host())
-        .ok_or("the tab is gone")?;
     let bytes = message.to_string().into_bytes();
     host.send_dev_tools_message(Some(&bytes));
     Ok(())
+}
+
+/// Sends a CDP command to a tab's browser for Circle itself (UI thread);
+/// `reply` gets its result. Circle enables no CDP domains, so pages can't
+/// tell, and agents' and DevTools' sessions never see these messages.
+pub fn command(
+    browser: &Browser,
+    method: &str,
+    params: Value,
+    reply: impl FnOnce(Result<Value, String>) + 'static,
+) {
+    let Some(host) = browser.host() else {
+        return reply(Err("the tab is gone".into()));
+    };
+    let browser_id = browser.identifier();
+    let id = BRIDGE.with(|bridge| {
+        let mut bridge = bridge.borrow_mut();
+        observe(&mut bridge, browser);
+        bridge.own_browsers.insert(browser_id);
+        bridge.next_id += 1;
+        let id = bridge.next_id;
+        bridge.own.insert(id, Box::new(reply));
+        id
+    });
+    let bytes = json!({ "id": id, "method": method, "params": params })
+        .to_string()
+        .into_bytes();
+    host.send_dev_tools_message(Some(&bytes));
+}
+
+/// Forgets a closed browser's observer for Circle's own commands.
+pub fn forget_browser(browser_id: i32) {
+    BRIDGE.with(|bridge| {
+        let mut bridge = bridge.borrow_mut();
+        bridge.own_browsers.remove(&browser_id);
+        if !bridge.attachments.contains_key(&browser_id) {
+            bridge.observers.remove(&browser_id);
+        }
+    });
+}
+
+/// Registers the browser's DevTools observer, once.
+fn observe(bridge: &mut Bridge, browser: &Browser) {
+    bridge
+        .observers
+        .entry(browser.identifier())
+        .or_insert_with(|| {
+            let mut observer = BridgeObserver::new();
+            browser
+                .host()
+                .and_then(|host| host.add_dev_tools_message_observer(Some(&mut observer)))
+        });
 }
 
 fn deliver(browser_id: i32, message: &[u8]) {
     let Ok(mut value) = serde_json::from_slice::<Value>(message) else {
         return;
     };
+    // A reply to Circle's own command: run it outside the borrow, since it
+    // may send another.
+    if let Some(id) = value.get("id").and_then(Value::as_i64)
+        && let Some(reply) = BRIDGE.with(|bridge| bridge.borrow_mut().own.remove(&id))
+    {
+        let result = match value.get("error") {
+            Some(error) => Err(error["message"].as_str().unwrap_or("CDP error").to_owned()),
+            None => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
+        };
+        return reply(result);
+    }
     BRIDGE.with(|bridge| {
         let mut bridge = bridge.borrow_mut();
         let id = value.get("id").and_then(Value::as_i64);
@@ -359,6 +437,53 @@ wrap_dev_tools_message_observer! {
             }
             1
         }
+    }
+}
+
+/// A CDP client inside Circle: the Network tool. What the tab sends it
+/// arrives in batches as `Cmd::NetworkCdp` (UI thread only).
+pub struct LocalClient {
+    browser: Browser,
+    client: u64,
+    browser_id: i32,
+}
+
+impl LocalClient {
+    pub fn open(tab: TabId, browser: Browser) -> Option<LocalClient> {
+        let (tx, rx) = mpsc::channel::<String>();
+        let (client, browser_id) = attach_browser(&browser, tx)?;
+        let relay = move || {
+            // Ends once detaching drops the sender.
+            while let Ok(first) = rx.recv() {
+                let mut batch = vec![first];
+                batch.extend(rx.try_iter().take(500));
+                run_on_ui(move || controller::dispatch(controller::Cmd::NetworkCdp(tab, batch)));
+            }
+        };
+        if std::thread::Builder::new()
+            .name("circle-network".into())
+            .spawn(relay)
+            .is_err()
+        {
+            detach(browser_id, client);
+            return None;
+        }
+        Some(LocalClient {
+            browser,
+            client,
+            browser_id,
+        })
+    }
+
+    pub fn send(&self, text: &str) -> Result<(), String> {
+        let host = self.browser.host().ok_or("the tab is gone")?;
+        forward_to(&host, self.client, text)
+    }
+}
+
+impl Drop for LocalClient {
+    fn drop(&mut self) {
+        detach(self.browser_id, self.client);
     }
 }
 

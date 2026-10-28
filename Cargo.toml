@@ -43,7 +43,11 @@ getrandom = "0.3"
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 gif = { version = "0.13", default-features = false, features = ["color_quant", "std"] }
 jpeg-decoder = { version = "0.3", default-features = false }
-sha2 = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
+aes-gcm = "0.10"
+rsa = { version = "0.9", default-features = false, features = ["std"] }
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -69,6 +73,13 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = [
 objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
 objc2-quartz-core = "0.3.2"
+keyring = { version = "3", features = ["apple-native"] }
+objc2-local-authentication = { version = "0.3.2", default-features = false, features = ["std", "LAContext", "LAPublicDefines", "block2"] }
+block2 = "0.6"
+
+[target."cfg(windows)".dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+windows = { version = "0.61", features = ["Security_Credentials_UI", "Foundation", "Win32_Foundation", "Win32_Security", "Win32_System_Pipes"] }
 
 # Image and GIF encoding crunch numbers; keep them fast in debug builds too.
 [profile.dev.package."*"]

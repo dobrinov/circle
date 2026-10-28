@@ -153,6 +153,13 @@ pub struct Session {
     /// Blur the page behind Spotlight (otherwise it is only dimmed).
     #[serde(default = "yes")]
     pub spotlight_blur: bool,
+    /// Circle's own password manager: suggest saved logins in pages. Off
+    /// for people who use another password manager.
+    #[serde(default = "yes")]
+    pub passwords_enabled: bool,
+    /// Offer to save passwords after signing in.
+    #[serde(default = "yes")]
+    pub passwords_offer: bool,
     /// Where developer tools open.
     #[serde(default)]
     pub devtools_dock: DevToolsDock,
@@ -161,6 +168,11 @@ pub struct Session {
     pub devtools_width: i32,
     #[serde(default = "default_devtools_height")]
     pub devtools_height: i32,
+    /// The Network tool's width (docked right) and height (docked bottom).
+    #[serde(default = "default_network_width")]
+    pub network_width: i32,
+    #[serde(default = "default_devtools_height")]
+    pub network_height: i32,
     /// Light or dark, for Circle and the pages it shows.
     #[serde(default)]
     pub appearance: Appearance,
@@ -187,6 +199,10 @@ pub enum DevToolsDock {
 
 fn default_devtools_width() -> i32 {
     480
+}
+
+fn default_network_width() -> i32 {
+    640
 }
 
 fn default_devtools_height() -> i32 {
@@ -227,6 +243,8 @@ impl Default for Session {
             agent_access: false,
             auto_update: true,
             spotlight_blur: true,
+            passwords_enabled: true,
+            passwords_offer: true,
             seen_version: None,
             recording_clicks: true,
             recording_keys: true,
@@ -234,6 +252,8 @@ impl Default for Session {
             devtools_dock: DevToolsDock::default(),
             devtools_width: default_devtools_width(),
             devtools_height: default_devtools_height(),
+            network_width: default_network_width(),
+            network_height: default_devtools_height(),
             appearance: Appearance::default(),
         };
         session.add_space("Personal");

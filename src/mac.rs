@@ -708,6 +708,11 @@ define_class!(
             menu_action(Action::DevTools);
         }
 
+        #[unsafe(method(circleNetwork:))]
+        fn network(&self, _sender: Option<&AnyObject>) {
+            menu_action(Action::Network);
+        }
+
         #[unsafe(method(circleDockRight:))]
         fn dock_right(&self, _sender: Option<&AnyObject>) {
             menu_action(Action::DockDevTools(DevToolsDock::Right));
@@ -954,6 +959,7 @@ fn install_menu(mtm: MainThreadMarker, app: &NSApplication) {
                 "i",
                 cmd_alt,
             ),
+            item(mtm, "Network", Some(sel!(circleNetwork:)), "e", cmd_alt),
             item(
                 mtm,
                 "View Source",

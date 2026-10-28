@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Circle Extensions</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      /* On a Chrome Web Store page: add the extension to Circle. Circle sizes
+         the overlay to #card and rounds its corners. */
+      html, body { margin: 0; height: auto; background: var(--panel); color: var(--panel-fg); overflow: hidden; }
+      #card { width: 330px; padding: 14px 14px 12px; }
+      .title { display: flex; align-items: flex-start; gap: 10px; }
+      .mark { width: 22px; height: 22px; flex: none; border-radius: 50%; margin-top: 1px;
+        background: conic-gradient(#4A6CFF, #2A9BA3 33.3%, #45C75B 66.6%, #4A6CFF);
+        -webkit-mask: radial-gradient(farthest-side, transparent 52%, #000 56%);
+        mask: radial-gradient(farthest-side, transparent 52%, #000 56%); }
+      .icon { width: 28px; height: 28px; flex: none; border-radius: 6px; object-fit: contain; }
+      .title > div { min-width: 0; }
+      .title b { display: block; font-size: 13.5px; font-weight: 650; overflow-wrap: anywhere; }
+      .title span { color: var(--panel-muted); font-size: 12px; }
+      .close { margin-left: auto; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: var(--panel-muted); flex: none; }
+      .close:hover { background: var(--panel-select); color: var(--panel-fg); }
+      .close svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+      .body { margin: 12px 0; font-size: 12.5px; line-height: 1.45; }
+      .perms { margin: 12px 0; border-radius: 8px; background: var(--panel-select); padding: 8px 10px; font-size: 12.5px; }
+      .perms p { margin: 0 0 4px; color: var(--panel-muted); }
+      .perms ul { margin: 0; padding-left: 16px; }
+      .perms li { margin: 2px 0; }
+      .error { color: hsl(0 65% 50%); }
+      .actions { display: flex; gap: 8px; justify-content: flex-end; }
+      .btn { height: 30px; padding: 0 14px; border-radius: 8px; font-weight: 600; font-size: 12.5px; }
+      .btn.quiet { color: var(--panel-muted); }
+      .btn.quiet:hover { background: var(--panel-select); color: var(--panel-fg); }
+      .btn.primary { background: var(--panel-fg); color: var(--panel); }
+      .btn.primary:hover { opacity: 0.88; }
+      .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--panel-select); border-top-color: var(--panel-fg);
+        animation: spin 0.8s linear infinite; display: inline-block; vertical-align: -2px; margin-right: 8px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="card"></div>
+    <script src="common.js"></script>
+    <script src="extcard.js"></script>
+  </body>
+</html>

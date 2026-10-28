@@ -57,16 +57,20 @@
   // The format chosen in the recording controls.
   let recordFormat = "video";
 
+  const UNSPLIT_ICON = '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="2" width="4" height="8" rx="1"/><rect x="7" y="2" width="4" height="8" rx="1"/></svg>';
   const DEV_BADGE = '<span class="dev" title="Running on this computer">DEV</span>';
 
   function tabRow(tab, section, folder) {
     const leading = tab.loading && tab.live ? '<span class="spinner"></span>' : circle.icon(tab);
+    const unsplit = state.split && state.split.includes(tab.id)
+      ? `<button class="x" data-unsplit title="Separate split view">${UNSPLIT_ICON}</button>`
+      : "";
     const reset = section === "pinned" ? `<button class="x reset" data-reset="${tab.id}" title="Back to pinned page">${RESET_ICON}</button>` : "";
     const closeTitle = section === "today" ? "Close" : "Unload";
     const tip = tab.renamed ? `${circle.title(tab)}\n${tab.page_title || ""}\n${tab.url}` : `${circle.title(tab)}\n${tab.url}`;
     return `<div class="tab ${tabClasses(tab)}" draggable="true" data-id="${tab.id}" data-section="${section}"${folder ? ` data-in-folder="${folder}"` : ""} title="${circle.esc(tip)}">
       ${leading}<span class="title ellipsis">${circle.esc(circle.shortTitle(tab))}</span>
-      ${circle.isLocal(tab.url) ? DEV_BADGE : ""}${reset}<button class="x" data-close="${tab.id}" title="${closeTitle}">${X_ICON}</button>
+      ${circle.isLocal(tab.url) ? DEV_BADGE : ""}${unsplit}${reset}<button class="x" data-close="${tab.id}" title="${closeTitle}">${X_ICON}</button>
     </div>`;
   }
 
@@ -109,6 +113,8 @@
     $("url").innerHTML = url
       ? `${secure ? LOCK_ICON : ""}<span class="text ellipsis">${circle.esc(shown)}<span class="path">${circle.esc(path)}</span></span>${local ? DEV_BADGE : ""}`
       : '<span class="text ellipsis" style="color:var(--muted)">Search or enter address</span>';
+
+    drawExtensions();
 
     // An agent is driving the browser.
     $("agent").innerHTML = state.agent.enabled && state.agent.active
@@ -187,13 +193,13 @@
     // Favorites
     const favs = $("favorites");
     favs.classList.toggle("empty", state.favorites.length === 0);
-    favs.innerHTML = state.favorites.length
+    circle.html(favs, state.favorites.length
       ? state.favorites
           .map(
             (t) => `<div class="fav ${tabClasses(t)}" draggable="true" data-id="${t.id}" data-section="favorites" title="${circle.esc(circle.title(t))}">${circle.icon(t, 20)}</div>`,
           )
           .join("")
-      : "";
+      : "");
 
     // Space
     document.body.classList.toggle("private", !!current.private);
@@ -205,10 +211,12 @@
       <button class="muted-btn" data-space-menu="${current.id}">•••</button>`;
     $("private-note").hidden = !current.private;
 
-    $("pinned").innerHTML =
-      current.folders.map(folderBlock).join("") + current.pinned.map((t) => tabRow(t, "pinned")).join("");
+    circle.html(
+      $("pinned"),
+      current.folders.map(folderBlock).join("") + current.pinned.map((t) => tabRow(t, "pinned")).join(""),
+    );
     const today = current.tabs.map((t) => tabRow(t, "today")).join("");
-    $("today").innerHTML = today;
+    circle.html($("today"), today);
     // Labels only where there is something to label.
     $("pinned-label").hidden = !current.pinned.length && !current.folders.length;
     $("today-label").hidden = !current.tabs.length;
@@ -308,6 +316,7 @@
       return;
     }
     if (event.target.closest("[data-bug-stop]")) return circle.send({ cmd: "bug_report_stop" });
+    if (event.target.closest("[data-unsplit]")) return circle.action("unsplit");
     const target = event.target.closest("[data-close],[data-reset],[data-allow],[data-deny],[data-space],[data-space-menu],[data-download],.tab,.fav");
     hideMenu();
     if (!target) return;
@@ -335,6 +344,63 @@
   $("forward").onclick = () => circle.action("forward");
   $("reload").onclick = () => circle.action(state?.nav.loading ? "stop" : "reload");
   $("url").onclick = () => circle.action({ open_palette: "edit" });
+
+  // ----- extension buttons ---------------------------------------------------
+
+  const PUZZLE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.5h3v2a1.25 1.25 0 0 0 2.5 0h1.5v3.5h-1.5a1.25 1.25 0 0 0 0 2.5h1.5v3h-3.5v-1.5a1.25 1.25 0 0 0-2.5 0v1.5H2.5v-3.5h1.5a1.25 1.25 0 0 0 0-2.5H2.5V4.5h4z"/></svg>';
+  const MAX_PINNED = 3;
+  const extIcon = (e) => `<img src="circle://ui/ext-icon/${circle.esc(e.id)}" alt="">`;
+  function drawExtensions() {
+    const list = state.extensions || [];
+    const pinned = list.filter((e) => e.pinned).slice(0, MAX_PINNED);
+    circle.html(
+      $("exts"),
+      list.length
+        ? pinned
+            .map((e) => `<button data-ext="${circle.esc(e.id)}" class="${e.open ? "open" : ""}" title="${circle.esc(e.title)}" aria-label="${circle.esc(e.title)}">${extIcon(e)}</button>`)
+            .join("") + `<button data-ext-menu title="Extensions" aria-label="Extensions">${PUZZLE}</button>`
+        : "",
+    );
+  }
+  const openExtension = (id, anchor) => {
+    const r = anchor.getBoundingClientRect();
+    circle.send({ cmd: "ext_open", id, x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height), peek: isPeek });
+  };
+  function showExtensionMenu(button) {
+    const list = state.extensions || [];
+    menu.className = "exts";
+    menu.innerHTML =
+      '<div class="label">Extensions</div>' +
+      list
+        .map((e) => `<button class="ext" data-ext-row="${circle.esc(e.id)}">${extIcon(e)}<span class="name">${circle.esc(e.name)}</span>
+          <span class="pin" data-ext-pin="${circle.esc(e.id)}" data-pinned="${e.pinned}" title="${e.pinned ? "Unpin" : "Pin"}">${e.pinned ? "Unpin" : "Pin"}</span></button>`)
+        .join("") +
+      '<hr><button data-ext-manage>Manage extensions</button>';
+    menu.classList.add("open");
+    const r = button.getBoundingClientRect();
+    menu.style.left = `${Math.max(6, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 6))}px`;
+    menu.style.top = `${r.bottom + 4}px`;
+    menu.onclick = (e) => {
+      e.stopPropagation();
+      const pin = e.target.closest("[data-ext-pin]");
+      const row = e.target.closest("[data-ext-row]");
+      hideMenu();
+      if (pin) return circle.send({ cmd: "ext_pin", id: pin.dataset.extPin, pinned: pin.dataset.pinned !== "true" });
+      if (row) return openExtension(row.dataset.extRow, button);
+      if (e.target.closest("[data-ext-manage]")) circle.send({ cmd: "ext_manage" });
+    };
+  }
+  $("exts").addEventListener("click", (event) => {
+    event.stopPropagation();
+    const button = event.target.closest("button");
+    if (!button) return;
+    if (button.hasAttribute("data-ext-menu")) {
+      if (menu.classList.contains("open") && menu.classList.contains("exts")) return hideMenu();
+      return showExtensionMenu(button);
+    }
+    hideMenu();
+    openExtension(button.dataset.ext, button);
+  });
   // ----- the library: downloads and recently closed ---------------------------
 
   let libraryView = "downloads";
@@ -456,6 +522,9 @@
       if (done) return;
       done = true;
       if (commit && input.value.trim() !== initial.trim()) save(input.value.trim());
+      // The row was edited in place: redraw it even if nothing changed.
+      const list = row.closest("#pinned, #today, #favorites");
+      if (list) list.circleHtml = null;
       flushPending();
       if (!pending) draw();
     };
@@ -574,6 +643,7 @@
 
   function showMenu(event, items) {
     event.preventDefault();
+    menu.className = "";
     menu.innerHTML = items
       .map((item) =>
         item === "-"
@@ -635,7 +705,9 @@
     items.push("-");
     items.push({ text: "Copy Link", run: () => circle.send({ cmd: "copy_url", id }) });
     items.push({ text: "Duplicate", run: () => circle.send({ cmd: "duplicate", id }) });
-    if (state.active && state.active !== id) {
+    if (state.split && state.split.includes(id)) {
+      items.push({ text: "Separate Split View", run: () => circle.action("unsplit") });
+    } else if (state.active && state.active !== id) {
       items.push({ text: "Open in Split View", run: () => circle.send({ cmd: "split", id }) });
       items.push({ text: "Open in Split View Below", run: () => circle.send({ cmd: "split", id, stacked: true }) });
     }
@@ -685,9 +757,12 @@
     event.dataTransfer.effectAllowed = "move";
     const tab = tabById(dragId);
     if (tab) event.dataTransfer.setData("text/uri-list", tab.url);
+    // Circle offers a drop card over the page for split view.
+    circle.send({ cmd: "tab_drag", id: dragId });
   });
 
   document.addEventListener("dragend", () => {
+    if (dragId !== null) circle.send({ cmd: "tab_drag", id: null });
     dragId = null;
     clearDrop();
     document.querySelectorAll(".dragging").forEach((el) => el.classList.remove("dragging"));

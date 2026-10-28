@@ -82,7 +82,12 @@ jobs:
 
       - name: Install build tools (macOS)
         if: runner.os == 'macOS'
-        run: brew install ninja || true
+        run: |
+          brew install ninja || true
+          # The DMG window's layout (packaging/macos/dmg/layout.py).
+          python3 -m venv "$RUNNER_TEMP/dmg"
+          "$RUNNER_TEMP/dmg/bin/pip" install --quiet --require-hashes -r packaging/macos/dmg/requirements.txt
+          echo "CIRCLE_DMG_PYTHON=$RUNNER_TEMP/dmg/bin/python3" >> "$GITHUB_ENV"
 
       - name: Install Inno Setup (Windows)
         if: runner.os == 'Windows'

@@ -37,6 +37,17 @@ wrap_app! {
             command_line: Option<&mut CommandLine>,
         ) {
             let is_browser = process_type.is_none_or(|t| t.to_string().is_empty());
+            let mut command_line = command_line;
+            if let (true, Some(command_line)) = (is_browser, command_line.as_deref_mut()) {
+                for (name, value) in crate::engine::switches() {
+                    let name = CefString::from(name.as_str());
+                    match value {
+                        Some(value) => command_line
+                            .append_switch_with_value(Some(&name), Some(&CefString::from(value.as_str()))),
+                        None => command_line.append_switch(Some(&name)),
+                    }
+                }
+            }
             // Every debug rebuild changes the ad-hoc code signature, which would
             // make macOS ask for keychain access on each run. Release builds
             // keep using the real keychain to encrypt cookies.
@@ -72,6 +83,13 @@ wrap_browser_process_handler! {
         fn on_context_initialized(&self) {
             scheme::register_handler_factory();
             controller::start(&self.profile_dir, self.initial_urls.clone());
+        }
+
+        /// Chrome-style windows only come from Chromium itself, e.g. an
+        /// extension calling `chrome.windows.create`: their pages move to
+        /// Circle tabs.
+        fn default_client(&self) -> Option<Client> {
+            Some(crate::client::new_client(crate::client::Role::Stray))
         }
 
         /// A second launch (e.g. clicking a link with Circle as the default

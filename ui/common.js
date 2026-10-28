@@ -105,6 +105,15 @@ document.addEventListener(
   true,
 );
 
+// Sets an element's markup only when it changed. Rebuilding rows on every
+// state push (the sidebar animating, a page loading) recreates their
+// favicons, which then flash blank while they decode.
+circle.html = (el, html) => {
+  if (el.circleHtml === html) return;
+  el.innerHTML = html;
+  el.circleHtml = html;
+};
+
 circle.setHue = (hue) => document.documentElement.style.setProperty("--hue", hue);
 
 circle.matches = (query, ...fields) => {

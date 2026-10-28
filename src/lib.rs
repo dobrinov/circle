@@ -5,9 +5,12 @@ pub mod app;
 pub mod bugreport;
 pub mod client;
 pub mod controller;
+pub mod engine;
+pub mod extensions;
 pub mod history;
 pub mod keys;
 pub mod model;
+pub mod passwords;
 pub mod recorder;
 pub mod remote;
 pub mod scheme;
@@ -61,6 +64,7 @@ pub fn run(main_args: &MainArgs, sandbox_info: *mut u8) -> i32 {
         return code;
     }
 
+    engine::init();
     let settings = Settings {
         no_sandbox: !cfg!(feature = "sandbox") as _,
         root_cache_path: CefString::from(profile.to_string_lossy().as_ref()),

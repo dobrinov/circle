@@ -7,6 +7,46 @@ as you go; `cargo xtask release <version>` turns them into a release.
 
 ## [Unreleased]
 
+### Added
+
+- A Network tool (⌥⌘E, or Ctrl+Shift+E), next to the page and separate from
+  DevTools. It tells GraphQL, REST and live connections apart: GraphQL shows
+  operation names, formatted queries, variables, and errors even when the
+  status is 200; REST groups calls into routes with their ids pulled out and
+  marks what changed since the last call; WebSockets and server-sent events
+  show their messages by protocol, fold heartbeats away and compare each
+  update with the last. Any call can be edited and replayed from the tab,
+  with the tab's cookies, and compared with the original.
+- A built-in password manager. After you sign in, Circle offers to save the
+  password; on the next visit it suggests your saved logins under the field
+  and fills the one you pick. Passwords are encrypted on your computer with a
+  key in the macOS Keychain or the Windows credential store, and showing or
+  copying one asks for Touch ID or Windows Hello. Settings › Passwords lists,
+  searches and deletes them, and turns Circle's manager off for people who
+  use 1Password, Bitwarden or another one. Nothing is saved or offered in
+  fap mode.
+- Chrome extensions. On an extension's Chrome Web Store page, Circle shows
+  an “Add to Circle” card: it downloads the extension, checks both the
+  developer's and the store's signatures, and lists what it will be able to
+  do before installing. Pinned extensions get a button next to the address
+  bar, with the rest under a puzzle button; clicking one opens its popup.
+  Settings › Extensions turns them on and off, pins them, opens their
+  options, removes them and loads unpacked ones for developers. Store
+  extensions update daily. Extensions don't run in fap mode.
+- Split view by dragging: drag a tab from the sidebar and drop it on a half
+  of the card over the page. Tabs in split view have a button (and a menu
+  item) to separate them again.
+- Duplicate the current tab with ⇧⌘D (Ctrl+Shift+D), or from Spotlight.
+
+### Changed
+
+- The macOS disk image opens to a styled window: drag Circle onto
+  Applications, with an arrow showing where.
+
+### Fixed
+
+- Favicons in the sidebar blinked while it opened or closed.
+
 ## [0.1.3] - 2026-10-27
 
 ### Changed
